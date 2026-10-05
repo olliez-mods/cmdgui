@@ -1,3 +1,3 @@
-from .format import bracket
+from .view import CMDGUI_View
 
-__all__ = ["bracket"]
+__all__ = ["CMDGUI_View"]
