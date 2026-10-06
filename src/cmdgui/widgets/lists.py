@@ -13,12 +13,17 @@ class Menu(Widget):
     focusable = True
     def init(self):
         self.scroll = 0
-        self.hovered = None
+        self.hovered = None # index of the item under the mouse
+        self._follow = True # scroll to the selection on the next draw
     def on_select(self, callback: Callable[[int, Any], Any]): # called with (index, item) on Enter or click
         self.select_callback = callback
     def _choose(self):
         if(0 <= self.selected < len(self.items)):
             _call(self.select_callback, self.selected, self.items[self.selected])
+    def _update_hover(self):
+        index = self.scroll + self.mouse_pos()[1] if self.mouse_over() else None
+        hovered = index if index is not None and index < len(self.items) else None
+        if(hovered != self.hovered): self.hovered = hovered # only redraw when it changes
 
     def on_input(self, input):
         if(input.type == "key"):
@@ -26,6 +31,7 @@ class Menu(Widget):
             moves = {"up": -1, "down": 1, "page_up": -self.height, "page_down": self.height,
                      "home": -len(self.items), "end": len(self.items)}
             if(key in moves and self.items):
+                self._follow = True
                 self.selected = max(0, min(len(self.items) - 1, self.selected + moves[key]))
             elif(key in ("enter", "space")):
                 self._choose()
@@ -37,23 +43,22 @@ class Menu(Widget):
         elif(input.type == "mouse_scroll" and self.mouse_over()):
             step = -1 if input.details["direction"] == "up" else 1
             self.scroll = max(0, min(max(0, len(self.items) - self.height), self.scroll + step))
+            self._update_hover() # a different item is under the mouse now
         elif(input.type == "mouse_move"):
-            self.hovered = None
-            if(not self.mouse_over()): return
-            index = self.scroll + self.mouse_pos()[1]
-            if(index < len(self.items)):
-                self.hovered = index
+            self._update_hover()
     def draw(self, c):
-        # Keep the selection in view
-        if(self.selected < self.scroll): object.__setattr__(self, "scroll", self.selected)
-        if(self.selected >= self.scroll + c.height): object.__setattr__(self, "scroll", self.selected - c.height + 1)
+        if(self._follow): # keep the selection in view
+            if(self.selected < self.scroll): object.__setattr__(self, "scroll", self.selected)
+            if(self.selected >= self.scroll + c.height): object.__setattr__(self, "scroll", self.selected - c.height + 1)
+            self._follow = False
+        object.__setattr__(self, "scroll", max(0, min(self.scroll, len(self.items) - c.height)))
         for row, item in enumerate(self.items[self.scroll:self.scroll + c.height]):
             index = self.scroll + row
             s = ""
             if(index == self.selected):
                 s = self.theme("selected" if self.focused else "selected_unfocused")
             elif(index == self.hovered):
-                pass#s = self.theme("button_hover")
+                s = self.theme("hover")
             c.text(0, row, pad_right(" " + str(item), c.width), s)
     def content_size(self):
         width = max([text_width(str(item)) for item in self.items] + [6])
@@ -201,12 +206,19 @@ class Table(Widget):
     columns: list = field(default_factory=list, kw_only=False) # header names
     rows: list = field(default_factory=list)                   # lists of values
     border = True
+    focusable = True
     def init(self):
         self.scroll = 0
+    def _scroll_by(self, step):
+        self.scroll = max(0, min(max(0, len(self.rows) - (self.height - 1)), self.scroll + step))
     def on_input(self, input):
         if(input.type == "mouse_scroll" and self.mouse_over()):
-            step = -1 if input.details["direction"] == "up" else 1
-            self.scroll = max(0, min(max(0, len(self.rows) - (self.height - 1)), self.scroll + step))
+            self._scroll_by(-1 if input.details["direction"] == "up" else 1)
+        elif(input.type == "key"):
+            page = max(1, self.height - 2) # rows under the header, keeping one in view
+            moves = {"up": -1, "down": 1, "page_up": -page, "page_down": page,
+                     "home": -len(self.rows), "end": len(self.rows)}
+            if(input.details["key"] in moves): self._scroll_by(moves[input.details["key"]])
     def draw(self, c):
         cells = [[str(v) for v in row] for row in self.rows]
         count = len(self.columns)

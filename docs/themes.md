@@ -22,11 +22,12 @@ view = View("...", theme={
 | `dim` | placeholders, hints | bright black |
 | `error` | stderr in `Stdout` | red |
 | `button` | buttons | plain |
-| `button_hover` | a button under the mouse | reversed |
-| `button_focus` | a focused button, checkbox or radio option | cyan, bold |
+| `button_hover` | a button or select under the mouse | reversed |
+| `button_focus` | a focused button, select, checkbox or radio option | cyan, bold |
 | `cursor` | the cursor in text boxes | reversed |
 | `selected` | the selected item in a focused menu or tree | black on cyan |
 | `selected_unfocused` | the same, when not focused | reversed |
+| `hover` | the menu item under the mouse | on bright black |
 | `progress`, `progress_empty` | the two parts of a progress bar | green, bright black |
 | `slider`, `slider_empty` | the two parts of a slider | cyan, bright black |
 | `slider_focus` | the slider's handle while focused or dragged | cyan, bold, reversed |

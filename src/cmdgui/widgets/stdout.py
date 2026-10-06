@@ -5,11 +5,13 @@ from ..inputs import mouse
 from .base import Widget
 
 class Stdout(Widget):
-    """Shows everything printed (and stderr, in red). Scroll with the mouse wheel."""
+    """Shows everything printed (and stderr, in red). Scroll with the mouse wheel, or
+    the arrow keys, Page Up/Down and Home/End when focused. End follows new output again."""
     max_lines: int = 500
     border = True
     preferred_width = "10+"
     preferred_height = "3+"
+    focusable = True
     def init(self):
         self.lines = [["", ""]] # [text, style]
         self.scroll = 0 # wrapped lines up from the bottom
@@ -20,6 +22,13 @@ class Stdout(Widget):
             step = 1 if input.details["direction"] == "up" else -1
             self._set_scroll(max(0, self.scroll + step))
             self.refresh()
+        elif(input.type == "key"):
+            page = max(1, self.height - 1)
+            moves = {"up": 1, "down": -1, "page_up": page, "page_down": -page,
+                     "home": 10 ** 9, "end": -10 ** 9} # draw() stops it at the top
+            if(input.details["key"] in moves):
+                self._set_scroll(max(0, self.scroll + moves[input.details["key"]]))
+                self.refresh()
     def _set_scroll(self, value):
         object.__setattr__(self, "scroll", value)
     def clear(self):

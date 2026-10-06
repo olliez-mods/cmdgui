@@ -5,6 +5,7 @@ import atexit
 import signal
 import sys
 import threading
+import time
 import traceback
 import copy
 from typing import Any, Callable, Optional, TypeVar, Union
@@ -82,6 +83,27 @@ def _spec(preferred, natural):
     if natural is not None:
         low = max(low, natural if high is None else min(natural, high))
     return f"{low}+" if high is None else f"{low}-{max(low, high)}"
+
+
+class Timer:
+    """A function the view calls later, once or repeatedly. Made by view.after()
+    and view.every(); cancel() stops it."""
+    def __init__(self, seconds: float, callback: Callable[[], Any], repeat: bool):
+        self.seconds = seconds
+        self.callback = callback
+        self.repeat = repeat
+        self._due = time.monotonic() + seconds
+        self._cancelled = False
+        self._finished = False # a one-off timer that has run
+
+    @property
+    def active(self) -> bool:
+        """True until it's cancelled, or until a one-off timer has run."""
+        return not (self._cancelled or self._finished)
+
+    def cancel(self) -> None:
+        """Stop it. Safe to call more than once, or from inside the callback."""
+        self._cancelled = True
 
 
 class Group():
@@ -284,6 +306,7 @@ class View(Group):
         self.focused: Optional[Widget] = None
         self.theme = {**DEFAULT_THEME, **(theme or {})}
         self.bindings = {} # key name -> function
+        self.timers: list[Timer] = []
         self.size = (0, 0)
         self._base = None   # borders (or the "too small" message), widgets go on top
         self._shown = None  # what's on the terminal right now
@@ -502,6 +525,45 @@ class View(Group):
         if callback: self.bindings[key] = callback
         else: self.bindings.pop(key, None)
 
+    # --- Timers ---
+
+    def after(self, seconds: float, callback: Callable[[], Any]) -> Timer:
+        """Call callback() once, after a delay. Runs on the view's thread, like other callbacks."""
+        return self._add_timer(Timer(seconds, callback, repeat=False))
+
+    def every(self, seconds: float, callback: Callable[[], Any]) -> Timer:
+        """Call callback() every few seconds until timer.cancel() or the view closes.
+        If a call runs late, the next one waits a full interval rather than catching up."""
+        if seconds <= 0: raise ValueError("every() needs a positive number of seconds")
+        return self._add_timer(Timer(seconds, callback, repeat=True))
+
+    def _add_timer(self, timer):
+        with self.lock:
+            self.timers.append(timer)
+        self._wake() # so the loop works out how long it can sleep
+        return timer
+
+    def _run_timers(self):
+        now = time.monotonic()
+        with self.lock:
+            due = [t for t in self.timers if t.active and t._due <= now]
+            for timer in due:
+                if timer.repeat:
+                    timer._due = max(timer._due + timer.seconds, now)
+                else:
+                    timer._finished = True
+            self.timers = [t for t in self.timers if t.active]
+        for timer in due:
+            with self.lock:
+                if not self.running: return
+                if not timer._cancelled: timer.callback() # an earlier callback may have cancelled it
+
+    def _sleep_time(self):
+        """How long to wait for input: 0.05s, or less if a timer is due sooner."""
+        with self.lock:
+            due = min((t._due for t in self.timers if t.active), default=None)
+        return 0.05 if due is None else max(0.0, min(0.05, due - time.monotonic()))
+
     # --- Lifetime ---
 
     def wait(self) -> None:
@@ -567,10 +629,11 @@ class View(Group):
                 if size != self.size:
                     self.size = size
                     self._relayout = True
-                for input in inputs.read_inputs(timeout=0.05):
+                for input in inputs.read_inputs(timeout=self._sleep_time()):
                     with self.lock:
                         if not self.running: return
                         self._dispatch(input)
+                self._run_timers()
                 self._render()
             except Exception:
                 traceback.print_exc() # goes to the captured stderr, shown after the view closes

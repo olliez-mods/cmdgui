@@ -46,6 +46,21 @@ Callbacks like `on_click` run on the view's thread. Keep them quick: while one i
 running, the view can't redraw or handle input. Start a `threading.Thread` for
 slow work, and set widget attributes from it as it goes.
 
+## Timers
+
+```python
+view.every(1, update_clock)                      # every second
+view.after(5, lambda: view.status.set(text=""))  # once, in 5 seconds
+
+timer = view.every(0.5, blink)
+timer.cancel()                                   # stop it
+```
+
+Both return a `Timer` with `cancel()` and `active`. Like other callbacks, timers run on
+the view's thread, so they can change widgets freely but should be quick. A timer that
+runs late doesn't try to catch up: the next call waits a full interval. Timers stop when
+the view closes.
+
 ## Running and quitting
 
 ```python

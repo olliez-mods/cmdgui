@@ -55,6 +55,7 @@ DEFAULT_THEME = {
     "cursor": style(reverse=True),
     "selected": style(fg="black", bg="cyan"),
     "selected_unfocused": style(reverse=True),
+    "hover": style(bg="bright_black"),          # the menu item under the mouse
     "progress": style(fg="green"),
     "progress_empty": style(fg="bright_black"),
     "header": style(bold=True, underline=True),

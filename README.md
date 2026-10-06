@@ -55,19 +55,20 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 
 - **Layouts drawn as text**: each word is a grid cell, `-` and `|` stretch a widget
   across cells, and borders between neighbours join up.
-- **Widgets**: text, labels, buttons, one-line and multi-line text boxes, checkboxes,
-  toggles, radio buttons, sliders, progress bars, menus, folding trees, tables, and a
-  box that shows everything you print.
+- **Widgets**: text, labels, buttons, one-line and multi-line text boxes (with password
+  mode and history), checkboxes, toggles, radio buttons, dropdowns, sliders, progress
+  bars, menus, folding trees, tables, and a box that shows everything you print.
 - **Popups**: dialogs, dropdowns and command menus that float over the layout.
 - **Mouse and keyboard**: clicks, dragging, the scroll wheel, Tab between widgets, and
   your own key bindings.
+- **Timers**: `view.every(1, tick)` and `view.after(5, fn)`, no threads needed.
 - **Themes**: restyle any part, with 73 named colors, the 256-color palette, or exact
   hex colors.
 - **Your own widgets**: subclass `Widget`, draw into a canvas, and it works in layouts.
 
 ## Documentation
 
-- [Overview](https://github.com/olliez-mods/cmdgui/blob/main/docs/index.md): ways to build a view, changing widgets, running and quitting
+- [Overview](https://github.com/olliez-mods/cmdgui/blob/main/docs/index.md): ways to build a view, changing widgets, timers, running and quitting
 - [Layouts](https://github.com/olliez-mods/cmdgui/blob/main/docs/layouts.md)
 - [Widgets](https://github.com/olliez-mods/cmdgui/blob/main/docs/widgets.md)
 - [Popups](https://github.com/olliez-mods/cmdgui/blob/main/docs/popups.md)

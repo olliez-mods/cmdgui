@@ -10,6 +10,7 @@
 | `checkbox` | [`Checkbox`](#checkbox-and-toggle) | A box to tick |
 | `toggle` | [`Toggle`](#checkbox-and-toggle) | An on/off switch |
 | `radio_group` | [`RadioGroup`](#radiogroup) | Pick one of several options |
+| `select` | [`Select`](#select) | A dropdown: pick one option from a list that opens |
 | `slider` | [`Slider`](#slider) | Pick a number by dragging |
 | `progress_bar` | [`ProgressBar`](#progressbar) | A bar from 0 to 1 |
 | `menu` | [`Menu`](#menu) | A list to pick from |
@@ -61,8 +62,19 @@ TextInput(placeholder="your name", on_submit=lambda value: print("hi", value))
 ```
 
 `value`, `placeholder`, `on_submit(fn(value))` when Enter is pressed,
-`on_change(fn(value))` after every edit. Left/right, Home/End (or Ctrl+A/Ctrl+E),
-Backspace and Delete work as you'd expect, and a click moves the cursor.
+`on_change(fn(value))` after every edit. Click to move the cursor. See
+[editing keys](#editing-keys) for the keys it understands.
+
+- `password=True` shows `•` for each character.
+- `keep_history=True` remembers each value submitted with Enter, and up/down bring
+  earlier ones back, like a shell. Going down past the newest brings back what you were
+  typing. The values are in `history` (oldest first), which you can fill or clear
+  yourself. Password boxes never keep history.
+
+```python
+TextInput(placeholder="password", password=True)
+TextInput(placeholder="command", keep_history=True, on_submit=run)
+```
 
 ## TextArea
 
@@ -73,9 +85,27 @@ TextArea(placeholder="notes", on_change=lambda value: save_draft(value))
 A multi-line text box. Long lines wrap; Enter starts a new line. `value`,
 `placeholder`, `on_change(fn(value))`.
 
-Arrow keys move through the wrapped rows, Home/End go to the start or end of the line,
-Ctrl+Home/Ctrl+End to the start or end of the text, and Page Up/Down a screen at a time.
-Click to move the cursor, and scroll with the mouse wheel.
+Up/down move through the wrapped rows, Page Up/Down a screen at a time, and
+Ctrl+Home/Ctrl+End go to the start or end of the text. The other
+[editing keys](#editing-keys) work too, with Home/End and Ctrl+U/Ctrl+K acting on the
+current line. Click to move the cursor, and scroll with the mouse wheel.
+
+### Editing keys
+
+Both text boxes understand:
+
+| Key | |
+|---|---|
+| Left / Right | move one character |
+| Ctrl+Left / Ctrl+Right (or Alt+Left / Alt+Right) | move one word |
+| Home / End (or Ctrl+A / Ctrl+E) | start / end of the line |
+| Backspace / Delete | delete one character |
+| Ctrl+W (or Alt+Backspace) | delete the word before the cursor |
+| Ctrl+U / Ctrl+K | delete to the start / end of the line |
+
+Emoji and other wide characters take two columns, and the cursor accounts for them.
+A [key binding](keys-and-focus.md#key-bindings) for one of these keys takes priority over
+the text box.
 
 ## Checkbox and Toggle
 
@@ -97,6 +127,25 @@ RadioGroup(["small", "medium", "large"], selected=1,
 `options`, `selected` (an index), `value` (the selected option), `horizontal=True` to
 put the options side by side, `on_change(fn(index, option))`, and `select(index)`.
 The arrow keys change the choice, or click one.
+
+## Select
+
+```python
+Select(["small", "medium", "large"], on_change=lambda index, option: print(option))
+Select(["red", "green", "blue"], selected=None, placeholder="pick a color")
+```
+
+Drawn like `[ medium      ▾]`. Click it, or press Enter or Space while it's focused, and
+the list of options opens below it (or above, if there's no room). Pick one with the
+mouse or the arrow keys and Enter; Escape or a click outside closes the list.
+
+Up/down change the choice without opening the list, and Home/End jump to the first or
+last option.
+
+`options`, `selected` (an index, or `None` for nothing chosen yet), `value` (the chosen
+option), `placeholder` (shown when nothing is chosen), `on_change(fn(index, option))`.
+`select(index)`, `open()` and `close()` do those from code, and `is_open` says whether
+the list is showing.
 
 ## Slider
 
@@ -129,7 +178,9 @@ Menu(["apple", "banana", "cherry"], on_select=lambda index, item: print(item))
 ```
 
 `items`, `selected` (an index), `on_select(fn(index, item))` on Enter or a click.
-Up/down, Page Up/Down and Home/End move the selection; the mouse wheel scrolls.
+Up/down, Page Up/Down and Home/End move the selection; the mouse wheel scrolls. The
+item under the mouse is highlighted with the `hover` [theme](themes.md) style, and
+`hovered` is its index (or `None`).
 
 ## Tree
 
@@ -174,8 +225,9 @@ can't tell them apart. See `examples/files.py` for a file browser.
 Table(["name", "score"], rows=[["Ada", 98], ["Linus", 87]])
 ```
 
-`columns` (header names) and `rows` (lists of values). Columns shrink to fit;
-scroll with the mouse wheel.
+`columns` (header names) and `rows` (lists of values). Columns shrink to fit.
+Scroll with the mouse wheel, or focus it (Tab or a click) and use up/down, Page Up/Down
+and Home/End.
 
 ## Stdout
 
@@ -186,8 +238,10 @@ log.print("only goes to this one", 42, sep=" | ")
 log.print("shown in red", error=True)
 ```
 
-Shows everything your program prints, with stderr in red. Scroll with the mouse wheel;
-while you're scrolled up, new output doesn't move what you're reading.
+Shows everything your program prints, with stderr in red. Scroll with the mouse wheel,
+or focus it (Tab or a click) and use up/down, Page Up/Down and Home to go to the top.
+While you're scrolled up, new output doesn't move what you're reading; End goes back to
+the bottom and follows new output again.
 
 - `print(*values, sep=" ", end="\n", error=False)`: like `print()`, but only shows up in
   this widget, and never on the real stdout.

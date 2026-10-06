@@ -1,4 +1,4 @@
-from cmdgui import View, Label, TextInput, TextArea, Button, Toggle, Menu, Table, ProgressBar, Checkbox, Slider, RadioGroup, style
+from cmdgui import View, Label, TextInput, TextArea, Button, Toggle, Menu, Table, ProgressBar, Checkbox, Slider, RadioGroup, Select, style
 import time
 
 # Tab / Shift+Tab or click to move focus, q to quit (unless typing in the text box)
@@ -18,7 +18,7 @@ class Demo(View):
         fruit    scores  -
         |        stdout  -
         notes    sizeSlider    color
-        bar      -       done
+        bar      pick    done
     """
     heading = Label("cmdgui widget demo  ·  Tab to move  ·  q to quit", align="center")
     name = TextInput(placeholder="your name", title="name",
@@ -38,11 +38,14 @@ class Demo(View):
                        on_change=on_radiogroup)
     
     bar = ProgressBar()
+    pick = Select(["small", "medium", "large"], on_change=lambda i, option: print("picked", option))
     done = Checkbox("done", on_change=lambda checked: print("done:", checked))
 
 view = Demo()
 view.on_key("ctrl+r", lambda: print("ctrl+r pressed"))
 view.color.select(1)
+# Timers run on the view's thread, alongside your program
+view.every(1, lambda: view.heading.set(text=time.strftime("cmdgui widget demo  ·  Tab to move  ·  q to quit  ·  %H:%M:%S")))
 
 # The main program keeps running, the view handles itself
 progress = 0.0
