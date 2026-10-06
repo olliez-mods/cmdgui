@@ -103,6 +103,7 @@ to the widget. `mouse` (from `cmdgui`) has the mouse state: `mouse.is_down(butto
 | `c.text(x, y, text, style)` | a string, clipped at the edge. Returns the x just after it |
 | `c.fill(x, y, w, h, char, style)` | fill a rectangle, the whole canvas by default |
 | `c.border(x, y, w, h, kind, style, title)` | a box; `kind` is `single`, `double`, `rounded`, `heavy` or `ascii` |
+| `c.markup(x, y, text, style, width=None, align="left")` | one line of [markup](widgets.md#styled-text); with `width`, cut off with `…` and aligned |
 | `c.restyle(style)` | give every cell the same style |
 
 Wide characters (emoji, CJK) take two cells and are handled for you. Styles come from
@@ -112,7 +113,9 @@ theme doesn't have.
 
 `cmdgui.shorts` has text helpers that understand wide characters: `text_width`,
 `fit(text, width)` (cuts it off with `…`), `wrap(text, width)`, and `pad_left`,
-`pad_right`, `pad_center`.
+`pad_right`, `pad_center`. For markup, `parse_markup(text, base_style)` gives the plain
+text and a style for each character, `strip_markup(text)` the text as shown, and
+`escape(text)` makes a value safe to put in markup.
 
 ## Other things a widget can use
 

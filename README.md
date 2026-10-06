@@ -60,6 +60,12 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
   bars, menus, folding trees, tables, a calendar and date picker, tabs, split panes to
   drag, a log viewer with levels and search, a box that shows everything you print, and
   a pixel canvas with lines, shapes and curves.
+- **Styled text**: `"[bold red]Error:[/] couldn't open [cyan]notes.txt[/]"` in labels,
+  buttons and text.
+- **Text boxes that behave**: select with the mouse or Shift, copy, cut and paste,
+  pasting in one go, and dim hints before, after and ahead of the cursor for autocomplete.
+- **Inline views**: draw in a few rows under the prompt instead of the whole screen, with
+  printed text scrolling above.
 - **Popups**: dialogs, dropdowns and command menus that float over the layout.
 - **Mouse and keyboard**: clicks, dragging, the scroll wheel, Tab between widgets, and
   your own key bindings.
@@ -80,4 +86,4 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 
 The [examples](https://github.com/olliez-mods/cmdgui/tree/main/examples) folder has a
 widget demo, a dashboard, popups, tabs, a console, a file browser, pixel graphics, a
-log viewer with split panes, and date pickers.
+log viewer with split panes, date pickers, and an inline progress display.

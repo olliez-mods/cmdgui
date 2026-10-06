@@ -20,8 +20,9 @@ class Demo(View):
         notes    sizeSlider    color
         bar      pick    done
     """
-    heading = Label("cmdgui widget demo  ·  Tab to move  ·  q to quit", align="center")
+    heading = Label("[bold]cmdgui widget demo[/]  ·  Tab to move  ·  q to quit", align="center")
     name = TextInput(placeholder="your name", title="name",
+                     suggest=["Ada", "Alan", "Grace", "Guido", "Linus", "Margaret"],  # start typing one: Tab completes
                      on_submit=lambda value: print(f"submitted {value!r}"))
     greet = Button("Greet", on_click=greet)
     fast = Toggle("fast", on_change=lambda on: print("fast mode", "on" if on else "off"))
@@ -39,13 +40,13 @@ class Demo(View):
     
     bar = ProgressBar()
     pick = Select(["small", "medium", "large"], on_change=lambda i, option: print("picked", option))
-    done = Checkbox("done", on_change=lambda checked: print("done:", checked))
+    done = Checkbox("[green]done[/]", on_change=lambda checked: print("done:", checked))
 
 view = Demo()
 view.on_key("ctrl+r", lambda: print("ctrl+r pressed"))
 view.color.select(1)
 # Timers run on the view's thread, alongside your program
-view.every(1, lambda: view.heading.set(text=time.strftime("cmdgui widget demo  ·  Tab to move  ·  q to quit  ·  %H:%M:%S")))
+view.every(1, lambda: view.heading.set(text=time.strftime("[bold]cmdgui widget demo[/]  ·  Tab to move  ·  q to quit  ·  [cyan]%H:%M:%S[/]")))
 
 # The main program keeps running, the view handles itself
 progress = 0.0

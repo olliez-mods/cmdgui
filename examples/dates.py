@@ -11,7 +11,7 @@ def stay_changed(_day):
     start, end = view.check_in.value, view.check_out.value
     if start and end:
         nights = (end - start).days
-        view.summary.text = f"staying {nights} night{'s' if nights != 1 else ''}"
+        view.summary.text = f"staying [bold]{nights}[/] night{'s' if nights != 1 else ''}"
     # Can't leave before arriving
     if start:
         view.check_out.min_date = start + timedelta(days=1)
@@ -26,8 +26,8 @@ class Booking(View):
         picked  -
     """
     month = Calendar(title="calendar", first_weekday=6,  # weeks start on Sunday
-                     on_change=lambda day: view.picked.set(text=f"moved to {day:%A %d %B}"),
-                     on_select=lambda day: view.picked.set(text=f"picked {day:%A %d %B %Y}"))
+                     on_change=lambda day: view.picked.set(text=f"moved to [cyan]{day:%A %d %B}[/]"),
+                     on_select=lambda day: view.picked.set(text=f"picked [bold green]{day:%A %d %B %Y}[/]"))
     check_in = DatePicker(today, title="check in", border=True, min_date=today, format="%a %d %b %Y",
                           first_weekday=6, on_change=stay_changed)
     check_out = DatePicker(today + timedelta(days=3), title="check out", border=True, format="%a %d %b %Y",

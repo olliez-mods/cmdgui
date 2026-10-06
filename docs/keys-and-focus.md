@@ -23,5 +23,9 @@ Key names:
 
 ## The quit key
 
-`View(layout, quit_key="q")` sets the quit key; `quit_key=None` turns it off. Ctrl+C
-always quits. Typing `q` into a focused text box types it rather than quitting.
+`View(layout, quit_key="q")` sets the quit key; `quit_key=None` turns it off. Typing `q`
+into a focused text box types it rather than quitting.
+
+Ctrl+C quits too (raising `KeyboardInterrupt`, as usual), except in a focused text box
+with text selected, where it copies. Ctrl+Z, Ctrl+S, Ctrl+Q and Ctrl+V reach the app as
+keys you can bind, rather than being taken by the terminal.

@@ -4,10 +4,12 @@ from typing import Any, Callable, Optional
 from ..shorts import *
 from ..inputs import mouse
 from .base import Widget, field, _call
+from .text import _styled
 
 class Button(Widget):
     text: str = field(default="Button", kw_only=False)
     callback: Optional[Callable[[], Any]] = field(default=None, alias="on_click")
+    markup: bool = True # read [style]...[/] in the text
     preferred_width = "5+"
     preferred_height = 1
     focusable = True
@@ -30,9 +32,11 @@ class Button(Widget):
     def draw(self, c):
         mid = c.height // 2 # vertically centred
         s = self.theme("button_hover" if self.hovered else "button_focus" if self.focused else "button")
-        c.text(0, mid, "[" + pad_center(self.text, c.width - 2) + "]", s)
+        c.put(0, mid, "[", s)
+        c.styled(1, mid, *_styled(self, self.text, s), s, max(0, c.width - 2), "center")
+        c.put(c.width - 1, mid, "]", s)
     def content_size(self):
-        return text_width(self.text) + 4, 1
+        return text_width(_styled(self, self.text, "")[0]) + 4, 1
 
 
 class Select(Widget):
@@ -202,6 +206,7 @@ class Slider(Widget):
 class Checkbox(Widget):
     text: str = field(default="", kw_only=False)
     checked: bool = False
+    markup: bool = True # read [style]...[/] in the text
     change_callback: Optional[Callable[[bool], Any]] = field(default=None, alias="on_change")
     preferred_width = "5+"
     preferred_height = 1
@@ -216,9 +221,10 @@ class Checkbox(Widget):
         if(input.type == "key" and input.details["key"] in ("enter", "space")): self.toggle()
     def draw(self, c):
         s = self.theme("button_focus") if self.focused else ""
-        c.text(0, c.height // 2, fit(("[x] " if self.checked else "[ ] ") + self.text, c.width), s)
+        x = c.text(0, c.height // 2, "[x] " if self.checked else "[ ] ", s)
+        c.styled(x, c.height // 2, *_styled(self, self.text, s), s, max(0, c.width - x))
     def content_size(self):
-        return text_width(self.text) + 5, 1 # one space after, so neighbours don't touch
+        return text_width(_styled(self, self.text, "")[0]) + 5, 1 # one space after, so neighbours don't touch
 
 
 class Toggle(Checkbox):
@@ -226,9 +232,10 @@ class Toggle(Checkbox):
     def draw(self, c):
         mid = c.height // 2
         x = c.text(0, mid, " ON  " if self.checked else " OFF ", self.theme("on" if self.checked else "off"))
-        c.text(x + 1, mid, fit(self.text, c.width - x - 1), self.theme("button_focus") if self.focused else "")
+        s = self.theme("button_focus") if self.focused else ""
+        c.styled(x + 1, mid, *_styled(self, self.text, s), s, max(0, c.width - x - 1))
     def content_size(self):
-        return text_width(self.text) + 7, 1
+        return text_width(_styled(self, self.text, "")[0]) + 7, 1
 
 
 class RadioGroup(Widget):

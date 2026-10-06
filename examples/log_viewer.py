@@ -18,13 +18,14 @@ class Controls(Panel):
     level = RadioGroup(["debug", "info", "warning", "error", "critical"], title="level", border=True,
                        on_change=lambda index, level: view.main.messages.log.set(level=level))
     search = TextInput(placeholder="search", title="search",
+                       suggest=["database", "finished", "polling", "request", "slow"],  # Tab completes
                        on_change=lambda text: view.main.messages.log.set(search=text))
     clear = Button("Clear", on_click=lambda: view.main.messages.log.clear())
 
 class Messages(Split):
     vertical = True          # the log above, prints below
     position = -6            # prints keep 6 rows, the log gets the rest
-    log = Log()
+    log = Log(markup=True)   # messages can be styled: [bold]...[/]
     prints = Stdout()
 
 class Main(Split):
@@ -45,10 +46,11 @@ logger.addHandler(view.main.messages.log.handler())
 
 def work():
     events = [
-        (logging.DEBUG, "polling queue"), (logging.DEBUG, "cache hit for user %d"),
-        (logging.INFO, "request from user %d served"), (logging.INFO, "job %d finished"),
-        (logging.WARNING, "job %d is slow, took 2.4s"), (logging.ERROR, "couldn't reach the database for job %d"),
-        (logging.CRITICAL, "disk full while saving job %d"),
+        (logging.DEBUG, "polling queue"), (logging.DEBUG, "cache hit for user [cyan]%d[/]"),
+        (logging.INFO, "request from user [cyan]%d[/] served"), (logging.INFO, "job [bold]%d[/] finished"),
+        (logging.WARNING, "job [bold]%d[/] is slow, took [yellow]2.4s[/]"),
+        (logging.ERROR, "couldn't reach the database for job [bold]%d[/]"),
+        (logging.CRITICAL, "disk full while saving job [bold]%d[/]"),
     ]
     while view.running:
         level, message = random.choices(events, weights=[8, 6, 6, 4, 2, 1, 0.3])[0]

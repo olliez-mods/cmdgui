@@ -26,33 +26,6 @@ def _level_name(level):
     return name
 
 
-def _wrap_spans(text, width):
-    """Word-wrap text, as (start, end) indexes of each row, so a row is text[start:end]."""
-    spans, width = [], max(1, width)
-    line_start = 0
-    for line in text.split("\n"):
-        i, end = line_start, line_start + len(line)
-        while True:
-            # The most that fits from i
-            j, used = i, 0
-            while j < end and used + char_width(text[j]) <= width:
-                used += char_width(text[j])
-                j += 1
-            if j == i and j < end: j += 1 # a character wider than the row: it goes on its own
-            if j >= end:
-                spans.append((i, end))
-                break
-            space = text.rfind(" ", i, j + 1) # break at the last space that fits, if there is one
-            if space > i:
-                spans.append((i, space))
-                i = space + 1
-            else:
-                spans.append((i, j))
-                i = j
-        line_start = end + 1
-    return spans
-
-
 class Log(Widget):
     """Log messages, each with a level shown in colour, and a time. Hide the less
     important ones with level, and find messages with search. Scroll with the mouse
@@ -70,6 +43,7 @@ class Log(Widget):
     show_time: bool = True
     time_format: str = "%H:%M:%S" # for strftime
     max_entries: int = 1000 # the oldest messages are dropped after this many
+    markup: bool = False # read [style]...[/] in messages (off, as they often hold data with [ in it)
     border = True
     preferred_width = "10+"
     preferred_height = "3+"
@@ -140,9 +114,12 @@ class Log(Widget):
     def _set_scroll(self, value):
         object.__setattr__(self, "scroll", value) # no redraw, the caller does that
 
+    def _plain(self, message):
+        return strip_markup(message) if self.markup else message
+
     def _shows(self, entry):
         _, level, message = entry
-        return LEVELS[level] >= LEVELS[self.level] and (not self.search or self.search.lower() in message.lower())
+        return LEVELS[level] >= LEVELS[self.level] and (not self.search or self.search.lower() in self._plain(message).lower())
 
     def _prefix_width(self, width):
         """Columns before the message: the time (if there's room) and the level."""
@@ -152,7 +129,7 @@ class Log(Widget):
 
     def _entry_rows(self, entry, width):
         """The rows an entry takes, as (start, end) of its message."""
-        return _wrap_spans(entry[2], width - self._prefix_width(width))
+        return wrap_spans(self._plain(entry[2]), width - self._prefix_width(width))
 
     def on_input(self, input):
         if(input.type == "mouse_scroll" and self.mouse_over()):
@@ -195,11 +172,12 @@ class Log(Widget):
                     x = c.text(0, y, _time.strftime(self.time_format, _time.localtime(when)), self.theme("dim")) + 1
                 c.text(x, y, LABELS[level], self.theme("log_" + level))
             s = self.theme("error") if LEVELS[level] >= LEVELS["error"] else ""
-            matches = [m.span() for m in pattern.finditer(message)] if pattern else [] # whole message, for matches split across rows
+            plain, styles = parse_markup(message, s) if self.markup else (message, [s] * len(message))
+            matches = [m.span() for m in pattern.finditer(plain)] if pattern else [] # whole message, for matches split across rows
             x = prefix
             for i in range(start, end):
                 hit = any(a <= i < b for a, b in matches)
-                x += c.put(x, y, message[i], self.theme("match") if hit else s)
+                x += c.put(x, y, plain[i], self.theme("match") if hit else styles[i])
         if(self.scroll):
             label = f" ↓ {self.scroll} more "
             c.text(max(0, c.width - len(label)), c.height - 1, label, self.theme("dim"))

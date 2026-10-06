@@ -82,6 +82,25 @@ while view.running:
 If anything raises, in your code or inside a callback, the terminal is put back
 to normal first, so the traceback is visible.
 
+## Inline views
+
+A view normally takes over the whole terminal. `inline` draws it in a few rows under the
+prompt instead, like a progress display:
+
+```python
+view = Downloads(inline=True)   # as many rows as the layout needs; or inline=8 for 8 rows
+print("finished photos.zip")    # shows above the view, like normal output
+view.stop()                     # the last frame stays, and the prompt comes back below it
+```
+
+- What your program prints goes above the view and scrolls up as usual (or into a
+  `Stdout` widget, if the view has one).
+- When it closes, the last frame stays in your scrollback; `keep_on_exit=False` clears it.
+- Everything else works as in a full-screen view: widgets, the mouse, popups (which stay
+  inside the view's rows), timers.
+
+See `examples/inline.py`.
+
 | Method | |
 |---|---|
 | `view.wait()` | block until the view closes |

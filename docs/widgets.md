@@ -53,6 +53,32 @@ Label("Status: ready", style=style(fg="green"))
 `text`, `align` (`"left"`, `"center"`, `"right"`), and `style` for the whole text (made
 with [`style()`](themes.md#colors)). `Label` is a `Text` one line tall.
 
+### Styled text
+
+Style parts of the text with markup:
+
+```python
+Label("[bold red]Error:[/] couldn't open [cyan]notes.txt[/]")
+Text("[on blue] NEW [/] [italic]fresh from the oven[/]")
+```
+
+| Markup | |
+|---|---|
+| `[bold]` `[dim]` `[italic]` `[underline]` `[reverse]` | text styles |
+| `[red]` `[hot_pink]` `[#ff8800]` | a color: any [color name](themes.md#colors) or hex |
+| `[on blue]` | a background color |
+| `[bold yellow on red]` | several at once |
+| `[/]` | ends the last one; `[/bold]` ends the last `[bold]`; anything still open ends with the text |
+| `\[` | a literal `[` |
+
+Brackets that aren't a style are left as they are, so `[1, 2]` and `[x]` show as
+written. Use names or hex for colors, not palette numbers, so `[1]` stays text too.
+
+Markup works in `Text`, `Label`, `Button`, `Checkbox` and `Toggle`. `markup=False` turns
+it off. `Menu`, `Tree`, `Table` and `Log` usually show data, where brackets are common, so
+there it's off unless you pass `markup=True`. To put a value into markup safely, escape
+it: `Label(f"opened [cyan]{escape(name)}[/]")`, with `escape` from `cmdgui.shorts`.
+
 ## Button
 
 ```python
@@ -68,8 +94,23 @@ TextInput(placeholder="your name", on_submit=lambda value: print("hi", value))
 ```
 
 `value`, `placeholder`, `on_submit(fn(value))` when Enter is pressed,
-`on_change(fn(value))` after every edit. Click to move the cursor. See
-[editing keys](#editing-keys) for the keys it understands.
+`on_change(fn(value))` after every edit. Click to move the cursor, or drag to select.
+See [editing keys](#editing-keys) for the keys it understands.
+
+- `prefix` and `suffix` show dim text before and after the value, which isn't part of
+  it: `TextInput(prefix="https://")`, `TextInput(suffix=" kg")`. They show once there's
+  text or the box is focused (the `placeholder` shows before that).
+- `suggest` offers a completion, shown dim after what's typed, like a shell's
+  autosuggestions. **Tab**, **Right** or **End** fills it in. Give it a list (the first
+  item starting with what's typed, ignoring case, is suggested) or a function that's
+  given the text and returns the whole suggested value, or `None`:
+
+  ```python
+  TextInput(suggest=["github.com", "gitlab.com", "google.com"])
+  TextInput(suggest=lambda text: next((c for c in commands if c.startswith(text)), None))
+  ```
+
+  `suggestion` is the current one, and `accept_suggestion()` fills it in from code.
 
 - `password=True` shows `•` for each character.
 - `keep_history=True` remembers each value submitted with Enter, and up/down bring
@@ -89,7 +130,7 @@ TextArea(placeholder="notes", on_change=lambda value: save_draft(value))
 ```
 
 A multi-line text box. Long lines wrap; Enter starts a new line. `value`,
-`placeholder`, `on_change(fn(value))`.
+`placeholder`, `on_change(fn(value))`. Pasted text keeps its lines.
 
 Up/down move through the wrapped rows, Page Up/Down a screen at a time, and
 Ctrl+Home/Ctrl+End go to the start or end of the text. The other
@@ -108,6 +149,28 @@ Both text boxes understand:
 | Backspace / Delete | delete one character |
 | Ctrl+W (or Alt+Backspace) | delete the word before the cursor |
 | Ctrl+U / Ctrl+K | delete to the start / end of the line |
+| Shift with any of the moves above (Shift+Left, Ctrl+Shift+Right, Shift+End...) | select |
+| Ctrl+C / Ctrl+X / Ctrl+V | copy / cut / paste |
+
+Drag with the mouse to select, too. Typing or pasting replaces the selection, and
+Backspace or Delete removes it.
+
+**Copy** puts the text on the system clipboard as far as the terminal allows: it sends
+the OSC 52 code, which most modern terminals act on (kitty, WezTerm, Ghostty, Alacritty,
+Windows Terminal; iTerm2 once it's allowed in its settings; not macOS's Terminal.app),
+and runs `pbcopy`, `wl-copy`, `xclip` or `xsel` when running locally. `cmdgui.clipboard`
+has `copy(text)` for your own code. A password box can't be copied from.
+
+**Cmd+C on macOS** can't copy from a text box: the terminal keeps Cmd shortcuts for
+itself and never sends them to the app. Use Ctrl+C, or `View(copy_on_select=True)`,
+which copies whatever you select with the mouse as soon as you let go. To select with
+the terminal itself instead (from anywhere on screen, then Cmd+C), hold a key while
+dragging: Option in iTerm2, Fn in Terminal.app, Shift in kitty, WezTerm, Ghostty and
+Alacritty.
+
+**Paste** with your terminal's own paste (Cmd+V, or Ctrl+Shift+V) to paste from the
+system clipboard: the text arrives in one go, so a pasted newline isn't Enter. A
+one-line box turns newlines into spaces. Ctrl+V pastes what was last copied in the app.
 
 Emoji and other wide characters take two columns, and the cursor accounts for them.
 A [key binding](keys-and-focus.md#key-bindings) for one of these keys takes priority over

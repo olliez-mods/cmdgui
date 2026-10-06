@@ -22,8 +22,11 @@ if not WINDOWS:
             fd = sys.stdin.fileno()
             self._saved = termios.tcgetattr(fd)
             attrs = termios.tcgetattr(fd)
-            # No line buffering, no echo. ISIG stays on so Ctrl+C still raises KeyboardInterrupt.
-            attrs[3] &= ~(termios.ICANON | termios.ECHO)
+            # No line buffering or echo. Ctrl+C, Ctrl+V, Ctrl+S and so on come through as keys
+            # (ISIG, IEXTEN, IXON off): the view turns Ctrl+C back into KeyboardInterrupt when
+            # it isn't copying, and Ctrl+S no longer freezes the output
+            attrs[3] &= ~(termios.ICANON | termios.ECHO | termios.ISIG | termios.IEXTEN)
+            attrs[0] &= ~termios.IXON
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
         def disable(self):

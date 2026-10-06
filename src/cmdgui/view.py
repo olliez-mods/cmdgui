@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import _thread
 import atexit
+import os
+import re
 import signal
 import sys
 import threading
@@ -22,16 +24,20 @@ G = TypeVar("G", bound="Panel")
 # With keep_typing, these keys go to the popup instead of the focused text box
 POPUP_KEYS = {"up", "down", "page_up", "page_down", "enter"}
 
+# Escape codes in printed text, left out when working out how wide it is
+ANSI_CODE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
 # Setup terminal
-def setup():
-    write(ESC + "?1049h" + hide_cursor()) # alternative screen
+def setup(inline=False):
+    write(("" if inline else ESC + "?1049h") + hide_cursor()) # the alternative screen, unless inline
     inputs.enable()
 
-def teardown():
+def teardown(inline=False, stderr_shown=0):
     inputs.disable()
-    write(show_cursor() + ESC + "?1049l") # back to the normal screen
-    # Anything written to stderr (like a traceback) was hidden on the alternate screen
-    errors = inputs.captured_stderr()
+    write(show_cursor() + ("" if inline else ESC + "?1049l")) # back to the normal screen
+    # Anything written to stderr (like a traceback) and not shown yet: it was hidden on
+    # the alternative screen, or written after an inline view stopped printing it
+    errors = inputs.captured_stderr()[stderr_shown:]
     if errors:
         sys.stderr.write(errors)
         sys.stderr.flush()
@@ -367,11 +373,20 @@ class View(Group):
         class UI(View):                                    # a subclass: typed in your editor
             layout = "heading \n stdout"
             heading = Label("Hi")
+
+    inline: draw in some rows under the prompt instead of taking over the whole
+    screen: inline=8 for 8 rows, or True for as many as the layout needs. Printed
+    text goes above it (or to a Stdout widget, if it has one), and when it closes
+    the last frame stays (keep_on_exit=False clears it).
+
+    copy_on_select: text selected with the mouse in a text box is copied straight
+    away, for terminals that keep Cmd+C to themselves (all of them on macOS).
     """
     _kind = "view"
 
     def __init__(self, layout: Optional[str] = None, theme: Optional[dict] = None,
-                 quit_key: Optional[str] = "q", **widgets: Widget):
+                 quit_key: Optional[str] = "q", inline: Union[bool, int] = False,
+                 keep_on_exit: bool = True, copy_on_select: bool = False, **widgets: Widget):
         self.lock = threading.RLock() # reentrant, so widgets can call view methods while handling input
         self.running = False
         self.thread = None
@@ -389,6 +404,15 @@ class View(Group):
         self._waiting = False
         self._quitting = False
         self._exit_code = 0 # 1 after a crash inside the view (e.g. in a callback)
+        if inline is not False and inline is not True and (not isinstance(inline, int) or inline < 1):
+            raise ValueError(f"inline should be True, False or a number of rows, got {inline!r}")
+        self.inline = inline
+        self.keep_on_exit = keep_on_exit
+        self.copy_on_select = copy_on_select
+        self._top = 0        # the screen row an inline view starts on
+        self._rows = 0       # how many rows an inline view has
+        self._pending = {"stdout": "", "stderr": ""} # printed text with no newline yet (inline)
+        self._stderr_shown = 0 # how much of stderr an inline view has printed above itself
         if quit_key:
             self.bindings[quit_key] = self.quit
 
@@ -405,8 +429,9 @@ class View(Group):
         self.running = True
         atexit.register(self.stop)
         try:
-            setup()
-            self.size = screen_size()
+            setup(bool(inline))
+            if inline: self._start_inline()
+            self.size = self._screen_area()
             self._render()
             self.thread = threading.Thread(target=self._input_loop, daemon=True)
             self.thread.start()
@@ -680,8 +705,80 @@ class View(Group):
             if self.thread and self.thread is not threading.current_thread():
                 self._wake()
                 self.thread.join()
-            teardown()
+            if self.inline: self._end_inline()
+            teardown(bool(self.inline), self._stderr_shown)
             self._done.set()
+
+    # --- Inline ---
+
+    def _start_inline(self):
+        """Make room for the view under the cursor, and find which row it starts on."""
+        screen_w, screen_h = screen_size()
+        if self.inline is True:
+            need = self._place(screen_w, 0).min_height if self.grid else 1
+        else:
+            need = self.inline
+        rows = self._rows = max(1, min(need, screen_h))
+        position = inputs.cursor_position()
+        if position is None:
+            row = screen_h - 1 # no answer: guess it's at the bottom, where a busy terminal's prompt is
+        elif position[0] > 0:
+            write("\r\n") # start on a line of our own
+            row = min(position[1] + 1, screen_h - 1)
+        else:
+            row = position[1]
+        write("\n" * (rows - 1)) # scrolls the screen up if there isn't room below
+        bottom = min(row + rows - 1, screen_h - 1)
+        self._top = bottom - (rows - 1)
+
+    def _screen_area(self):
+        """The size of the area the view draws in: the screen, or an inline view's rows."""
+        width, height = screen_size()
+        if not self.inline: return width, height
+        self._rows = min(self._rows, height)
+        self._top = max(0, min(self._top, height - self._rows))
+        return width, self._rows
+
+    def _has_stdout(self):
+        return any(isinstance(widget, Stdout) for widget in self._every_widget())
+
+    def _print_above(self, kind, text):
+        """Print text above an inline view, a whole line at a time, moving the view down."""
+        if kind == "stderr": self._stderr_shown += len(text)
+        *lines, self._pending[kind] = (self._pending[kind] + text).split("\n")
+        if lines: self._write_above([(kind, line) for line in lines])
+
+    def _write_above(self, lines):
+        screen_w, screen_h = screen_size()
+        out, used = [move(0, self._top), ESC + "0m", ESC + "J"], 0 # clear the view, then write over it
+        for kind, line in lines:
+            line = line.expandtabs()
+            width = text_width(ANSI_CODE.sub("", line))
+            used += max(1, -(-width // max(1, screen_w))) # rows it takes, long lines wrapping
+            out.append((styled(line, fg="red") if kind == "stderr" else line + ESC + "0m") + "\r\n")
+        # Below the text, make room for the view again
+        row = min(self._top + used, screen_h - 1)
+        out.append("\n" * (self._rows - 1))
+        self._top = min(row + self._rows - 1, screen_h - 1) - (self._rows - 1)
+        write("".join(out))
+        self._shown = None # draw it all again, in its new place
+        self._redraw_base = True
+
+    def _end_inline(self):
+        """Print what's left of the printed text, then leave the last frame (or clear it)
+        with the cursor below it, for the prompt."""
+        rest = [(kind, text) for kind, text in self._pending.items() if text]
+        self._pending = {"stdout": "", "stderr": ""}
+        if rest:
+            self._write_above(rest)
+            with self.lock:
+                self.running, running = True, self.running # _render only draws while running
+                self._render()
+                self.running = running
+        if self.keep_on_exit:
+            write(ESC + "0m" + move(0, self._top + self._rows - 1) + "\r\n")
+        else:
+            write(ESC + "0m" + move(0, self._top) + ESC + "J")
 
     # --- Internals ---
 
@@ -691,6 +788,14 @@ class View(Group):
     def _redraw_borders(self):
         self._redraw_base = True
         self._wake()
+
+    def _interrupt(self):
+        """Ctrl+C: the terminal sends it to us as a key (so text boxes can copy with it),
+        so raise it as the signal it would have been: KeyboardInterrupt in the main thread."""
+        if hasattr(signal, "SIGINT") and os.name != "nt":
+            os.kill(os.getpid(), signal.SIGINT)
+        else:
+            _thread.interrupt_main()
 
     def _install_sigint(self):
         """Signal handlers can only be set from the main thread, so set one up now
@@ -709,7 +814,7 @@ class View(Group):
     def _input_loop(self):
         while self.running:
             try:
-                size = screen_size()
+                size = self._screen_area()
                 if size != self.size:
                     self.size = size
                     self._relayout = True
@@ -726,6 +831,11 @@ class View(Group):
                 return
 
     def _dispatch(self, input):
+        if self.inline and input.type.startswith("mouse"):
+            input.details["y"] -= self._top # to rows of the view, like the full screen's
+        if self.inline and input.type in ("stdout", "stderr") and not self._has_stdout():
+            self._print_above(input.type, input.details["text"])
+            return
         inputs.update_state(input)
         if self.too_small and input.type not in ("stdout", "stderr"): return # keep collecting prints
 
@@ -736,6 +846,9 @@ class View(Group):
             if top and key == "escape" and top.close_on_escape:
                 top.close()
                 return
+            if focused and focused.enabled and focused._claims_key(key):
+                focused.on_input(input) # e.g. Ctrl+C copying the selection in a text box
+                return
             if top and top.keep_typing and not char and key in POPUP_KEYS:
                 target = next((w for w in self._walk(top.widgets) if w.can_focus), None)
                 if target:
@@ -745,12 +858,19 @@ class View(Group):
                 focused.on_input(input) # typing into a text box beats key bindings
             elif key in self.bindings:
                 self.bindings[key]()
+            elif key == "ctrl+c":
+                self._interrupt()
             elif key in ("tab", "shift_tab"):
                 self.focus_next(1 if key == "tab" else -1)
             elif focused and any(c._child_key(key) for c in _containers(focused)):
                 pass # e.g. Ctrl+Page Down switched the tab the focused widget is in
             elif focused:
                 focused.on_input(input)
+            return
+
+        if input.type == "paste":
+            focused = self.focused
+            if focused and focused.captures_text and focused.enabled: focused.on_input(input)
             return
 
         if input.type.startswith("mouse"):
@@ -812,7 +932,7 @@ class View(Group):
                 self._draw_layer_borders(screen, popup)
                 for widget in self._walk(popup.widgets):
                     if widget._canvas: self._blit(screen, widget)
-            out = screen.diff(self._shown)
+            out = screen.diff(self._shown, self._top)
             self._shown = screen
             if out: write(render_frame(out))
 
@@ -826,7 +946,10 @@ class View(Group):
         self._relayout = False
         self.too_small = False
         self._shown = None # everything gets drawn again
-        write(clear_screen())
+        if self.inline: # just our rows
+            write("".join(move(0, self._top + row) + ESC + "2K" for row in range(self.size[1])))
+        else:
+            write(clear_screen())
         width, height = self.size
         self._base = Canvas(width, height)
         if self.grid:
@@ -895,6 +1018,6 @@ class View(Group):
         for i, line in enumerate(lines):
             line = fit(line, width)
             self._base.text(max(0, (width - len(line)) // 2), max(0, height // 2 - 1 + i), line)
-        write(render_frame(self._base.diff(None)))
+        write(render_frame(self._base.diff(None, self._top)))
         self._shown = self._base
 

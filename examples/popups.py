@@ -7,7 +7,7 @@ class Confirm(Popup):
         yes      no
     """
     title = "Clear the log?"
-    message = Label("This can't be undone.", align="center")
+    message = Label("[bold]This can't be undone.[/]", align="center")
     yes = Button("Clear")
     no = Button("Cancel")
 
@@ -32,7 +32,7 @@ class App(View):
     """
     clear = Button("Clear log", on_click=lambda: view.show(view.confirm))
     pick = Button("Pick fruit", on_click=lambda: view.show(view.fruit, below=view.pick))
-    about = Button("About", on_click=lambda: view.alert("Popups float over the layout.\nTab, Enter and Escape work in them.", title="About"))
+    about = Button("About", on_click=lambda: view.alert("[bold]Popups[/] float over the layout.\n[dim]Tab, Enter and Escape work in them.[/]", title="About"))
     log = Stdout()
 
     confirm = Confirm()

@@ -15,8 +15,8 @@ import time
 from typing import Any, Callable, Optional
 
 from cmdgui import (View, Popup, Widget, Label, Text, Button, TextInput, ProgressBar,
-                    Checkbox, Toggle, Menu, Table, Stdout, field, style)
-from cmdgui.shorts import fit, pad_left, pad_right, text_width
+                    Checkbox, Toggle, Menu, Table, Log, field, style)
+from cmdgui.shorts import escape, fit, pad_left, pad_right, text_width
 
 
 # --- The data ---------------------------------------------------------------
@@ -46,9 +46,11 @@ SERVICES = [
 ]
 
 
-def log(level, service, message):
-    marks = {"info": "  ", "ok": "✔ ", "warn": "▲ ", "error": "✖ "}
-    print(f"{time.strftime('%H:%M:%S')} {marks[level]}{service:<9} {message}")
+def log(kind, service, message):
+    # The Log widget adds the time and a coloured level; markup colours the rest
+    level, mark = {"info": ("info", " "), "ok": ("info", "[green]✔[/]"),
+                   "warn": ("warning", "[yellow]▲[/]"), "error": ("error", "[red]✖[/]")}[kind]
+    view.log.add(f"{mark} [cyan]{service:<9}[/] {escape(message)}", level=level)
 
 
 def uptime(service):
@@ -186,7 +188,7 @@ class DeployDialog(Popup):
     """
     title = "Deploy"
     info = Label()
-    version = TextInput(placeholder="new version, e.g. 1.15.0", title="version")
+    version = TextInput(placeholder="new version, e.g. 1.15.0", title="version", prefix="v")
     migrate = Checkbox("run migrations", checked=True)
     canary = Checkbox("canary first")
     progress = ProgressBar(preferred_width="40")
@@ -206,7 +208,7 @@ class DeployDialog(Popup):
         if self.deploying:
             return view.show(self)  # already running: just bring it back
         self.service, self.cancelled = service, False
-        self.info.text = f"{service.name}  ·  currently v{service.version}  ·  {service.replicas} replicas"
+        self.info.text = f"[bold]{service.name}[/]  ·  currently [cyan]v{service.version}[/]  ·  {service.replicas} replicas"
         major, minor, patch = service.version.split(".")
         self.version.set(value=f"{major}.{minor}.{int(patch) + 1}", cursor=99)
         self.progress.value = 0
@@ -219,7 +221,7 @@ class DeployDialog(Popup):
         if self.deploying: return
         if self.progress.value >= 1: return self.close()  # "Done" button
         if not self.version.value.strip():
-            self.step.text = "✖ enter a version first"
+            self.step.text = "[red]✖ enter a version first[/]"
             return
         self.deploying = True
         self.close_on_escape = False  # don't lose the dialog mid-rollout
@@ -255,7 +257,7 @@ class Palette(Popup):
     close_on_outside_click = True
 
 
-HELP = (__doc__ or "").split("\n\n")[2] + ("\n\nCommands (type / in the command line):\n"
+HELP = (__doc__ or "").split("\n\n")[2] + ("\n\n[bold]Commands[/] [dim](type / in the command line, Tab completes)[/]\n"
                                            "deploy · restart · scale · incident · heal · clear · help · quit")
 
 class Help(Popup):
@@ -294,17 +296,18 @@ class MissionControl(View):
     services = ServiceList(SERVICES, title="services",
                            on_change=lambda service: show_service(service))
     fleet = Table(["service", "status", "version", "replicas", "uptime", "cpu", "mem", "req/s"],
-                  preferred_height=len(SERVICES) + 1)
+                  preferred_height=len(SERVICES) + 1, markup=True)   # coloured statuses
     cpu = Sparkline(unit="%", max_value=100, warn=70, crit=90, preferred_height="5")
     mem = Sparkline(unit="%", max_value=100, warn=75, crit=90, preferred_height="5")
     rps = Sparkline(unit="/s", preferred_height="5")
-    log = Stdout(preferred_height="4+")
+    log = Log(markup=True, preferred_height="4+")
     deploy = Button("Deploy  d", on_click=lambda: view.deploy_dialog.open(view, selected()))
     restart = Button("Restart  r", on_click=lambda: ask_restart())
     scale = Button("Scale  s", on_click=lambda: view.show(view.scale_menu, below=view.scale))
     heal = Toggle("auto-heal", checked=True,
                   on_change=lambda on: log("info", "fleet", f"auto-heal {'on' if on else 'off'}"))
     command = TextInput(title="command", placeholder="/ for commands · type a service name to jump to it",
+                        prefix="› ", suggest=lambda text: suggest_command(text),
                         on_change=lambda value: command_typed(value),
                         on_submit=lambda value: command_entered(value))
 
@@ -328,6 +331,12 @@ COMMANDS = {
     "quit":     "leave Mission Control",
 }
 
+def suggest_command(text):
+    """The dim completion in the command line, which Tab fills in."""
+    if text.startswith("/"):
+        return next(("/" + name for name in COMMANDS if name.startswith(text[1:])), None)
+    return next((s.name for s in SERVICES if s.name.startswith(text)), None)
+
 def selected() -> Service:
     return SERVICES[view.services.selected]
 
@@ -339,8 +348,8 @@ def show_service(service):
 def ask_restart():
     service = selected()
     view.confirm.ask(view, f"Restart {service.name}?",
-                     f"All {service.replicas} replicas of {service.name} will restart\n"
-                     f"one at a time. Traffic keeps flowing.",
+                     f"All {service.replicas} replicas of [bold]{service.name}[/] will restart\n"
+                     f"one at a time. [dim]Traffic keeps flowing.[/]",
                      lambda: start_task(restart_task(service)))
 
 def scale(replicas):
@@ -396,7 +405,7 @@ def incident():
     service.errors += random.randint(20, 200)
     log("error", service.name, "health checks failing — service is DOWN")
     if not view.heal.checked:
-        view.alert(f"{service.name} is down!\n\nAuto-heal is off. Restart it with r,\nor turn auto-heal on.",
+        view.alert(f"[bold red]{service.name} is down![/]\n\nAuto-heal is off. Restart it with [bold]r[/],\nor turn auto-heal on.",
                    title="⚠ Incident")
 
 
@@ -423,7 +432,7 @@ def deploy_task(service, version, dialog):
             if dialog.cancelled:
                 service.status = old_status
                 log("warn", service.name, f"deploy of v{version} aborted, rolled back")
-                dialog.finished(False, "▲ aborted — rolled back")
+                dialog.finished(False, "[yellow]▲ aborted[/] — rolled back")
                 return
             yield 0.1
             done += 0.1
@@ -431,7 +440,7 @@ def deploy_task(service, version, dialog):
     service.version, service.status = version, "up"
     service.started = time.time()
     log("ok", service.name, f"v{version} is live")
-    dialog.finished(True, f"✔ v{version} is live on all {service.replicas} replicas")
+    dialog.finished(True, f"[green]✔ v{version} is live[/] on all {service.replicas} replicas")
 
 def restart_task(service):
     service.status = "restarting"
@@ -487,7 +496,7 @@ def refresh_overview():
     busy = counts["deploying"] + counts["restarting"]
     view.banner.right = (f"{counts['up']} up · {counts['degraded']} degraded · {counts['down']} down"
                          + (f" · {busy} busy" if busy else "") + "    ? help")
-    view.fleet.rows = [[s.name, f"{STATUS[s.status][0]} {s.status}", f"v{s.version}", s.replicas, uptime(s),
+    view.fleet.rows = [[s.name, "[{1}]{0} {2}[/]".format(*STATUS[s.status], s.status), f"v{s.version}", s.replicas, uptime(s),
                         "—" if s.status == "down" else f"{s.cpu[-1]:.0f}%", f"{s.mem[-1]:.0f}%",
                         f"{s.rps[-1]:.0f}"] for s in SERVICES]
     view.services.refresh()

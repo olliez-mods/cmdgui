@@ -25,6 +25,7 @@ view = View("...", theme={
 | `button_hover` | a button or select under the mouse | reversed |
 | `button_focus` | a focused button, select, checkbox or radio option | cyan, bold |
 | `cursor` | the cursor in text boxes | reversed |
+| `selection` | selected text in text boxes | black on bright blue |
 | `selected` | the selected item in a focused menu or tree, the chosen day in a calendar | black on cyan |
 | `selected_unfocused` | the same, when not focused | reversed |
 | `hover` | the menu item or tab under the mouse | on bright black |
@@ -54,6 +55,9 @@ style(fg="orange", bg="navy", bold=True, dim=False, italic=False, underline=Fals
 
 `styled(text, ...)` wraps text in a style for printing straight to the terminal:
 `print(styled("done", fg="green", bold=True))`.
+
+To style part of a widget's text, use [markup](widgets.md#styled-text):
+`Label("[bold red]Error:[/] disk full")`.
 
 ## Colors
 

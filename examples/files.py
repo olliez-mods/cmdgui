@@ -1,4 +1,5 @@
 from cmdgui import View, Split, Tree, Text
+from cmdgui.shorts import escape
 import os
 
 # A file browser: folders load their contents when you first open them.
@@ -21,13 +22,14 @@ root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 def show(path):
     full = os.path.join(root, *path)
     if os.path.isdir(full):
-        view.browser.preview.text = f"{full}\n\n{len(os.listdir(full))} items"
+        # escape(): a path with [ in it would otherwise be read as markup
+        view.browser.preview.set(text=f"[bold]{escape(full)}[/]\n\n[cyan]{len(os.listdir(full))}[/] items", markup=True)
         return
     try:
         with open(full, encoding="utf-8") as f:
-            view.browser.preview.text = f.read(4000)
+            view.browser.preview.set(text=f.read(4000), markup=False)  # a file's text, shown exactly as it is
     except (OSError, UnicodeDecodeError) as e:
-        view.browser.preview.text = f"Can't show this file: {e}"
+        view.browser.preview.set(text=f"[red]Can't show this file:[/] {escape(str(e))}", markup=True)
 
 class Browser(Split):
     position = 0.3   # the files get 30% of the width; dragging keeps it a fraction

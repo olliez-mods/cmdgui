@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import unicodedata
 from typing import Literal, Optional, Tuple, Union, get_args
@@ -216,6 +217,117 @@ def wrap(text, width):
         lines.append(line)
     return lines
 
+def wrap_spans(text, width):
+    """Word-wrap text like wrap(), but as (start, end) indexes of each row, so a row is
+    text[start:end]: for drawing text that has a style per character."""
+    spans, width = [], max(1, width)
+    line_start = 0
+    for line in text.split("\n"):
+        i, end = line_start, line_start + len(line)
+        while True:
+            # The most that fits from i
+            j, used = i, 0
+            while j < end and used + char_width(text[j]) <= width:
+                used += char_width(text[j])
+                j += 1
+            if j == i and j < end: j += 1 # a character wider than the row: it goes on its own
+            if j >= end:
+                spans.append((i, end))
+                break
+            space = text.rfind(" ", i, j + 1) # break at the last space that fits, if there is one
+            if space > i:
+                spans.append((i, space))
+                i = space + 1
+            else:
+                spans.append((i, j))
+                i = j
+        line_start = end + 1
+    return spans
+
+# --- Markup -------------------------------------------------------------------
+# Styles inside text: "[bold red]Error:[/] couldn't open [cyan]notes.txt[/]"
+#   [bold] [dim] [italic] [underline] [reverse]   [red] [hot_pink] [#ff8800]   [on blue]
+#   several at once: [bold yellow on red]
+#   [/] ends the last one, [/bold] the last [bold]; anything still open ends with the text
+#   \[ is a literal [, and a [...] that isn't a style is left as it is: "[1]", "[x]"
+#   (palette numbers aren't colors here, so "[1]" stays text: use a name or #hex)
+
+MARKUP_TAG = re.compile(r"\\\[|\[(/?)([^\[\]]*)\]")
+_ATTRIBUTES = ("bold", "dim", "italic", "underline", "reverse")
+_tag_cache = {}
+
+def _parse_tag(spec):
+    """The style() arguments for a tag's text, or None if it isn't a style."""
+    if spec in _tag_cache: return _tag_cache[spec]
+    words, parsed = spec.split(), {}
+    i = 0
+    try:
+        while i < len(words):
+            word = words[i].lower()
+            if word in _ATTRIBUTES:
+                parsed[word] = True
+            elif word == "on" and i + 1 < len(words):
+                i += 1
+                parsed["bg"] = _markup_color(words[i])
+            else:
+                parsed["fg"] = _markup_color(words[i])
+            i += 1
+    except ValueError:
+        parsed = None
+    if not words: parsed = None
+    if len(_tag_cache) < 1024: _tag_cache[spec] = parsed
+    return parsed
+
+def _markup_color(word):
+    _color_code(word, 30) # raises ValueError if it isn't a color
+    return word
+
+def parse_markup(text, base=""):
+    """Markup as plain text and the style of each of its characters: (plain, styles).
+    base is the style underneath, e.g. the widget's own."""
+    plain, styles, stack = [], [], [] # stack: (tag text, style() arguments)
+    current, pos = base, 0
+    for match in MARKUP_TAG.finditer(text):
+        before = text[pos:match.start()]
+        plain.append(before)
+        styles.extend([current] * len(before))
+        pos = match.end()
+        if match.group() == "\\[":
+            plain.append("[")
+            styles.append(current)
+            continue
+        closing, spec = match.groups()
+        if closing:
+            if not stack: # nothing to end: it's just text
+                plain.append(match.group())
+                styles.extend([current] * len(match.group()))
+                continue
+            index = next((i for i in range(len(stack) - 1, -1, -1) if stack[i][0] == spec.strip()), len(stack) - 1) \
+                if spec.strip() else len(stack) - 1
+            del stack[index]
+        else:
+            parsed = _parse_tag(spec)
+            if parsed is None: # not a style: it's just text
+                plain.append(match.group())
+                styles.extend([current] * len(match.group()))
+                continue
+            stack.append((spec.strip(), parsed))
+        merged = {}
+        for _, parsed in stack: merged.update(parsed)
+        current = base + style(**merged) if merged else base
+    plain.append(text[pos:])
+    styles.extend([current] * (len(text) - pos))
+    return "".join(plain), styles
+
+def strip_markup(text):
+    """The text without its markup, as it's shown."""
+    return parse_markup(text)[0]
+
+def escape(text):
+    """Text with its [ escaped, so it shows as it is in markup: for putting values (file
+    names, user input) into markup."""
+    return str(text).replace("[", "\\[")
+
 # --- Canvas -------------------------------------------------------------------
 
 class Canvas:
@@ -260,6 +372,29 @@ class Canvas:
         Returns the x just after the text."""
         for char in text:
             x += self.put(x, y, char, style)
+        return x
+
+    def markup(self, x, y, text, style="", width=None, align="left"):
+        """Write one line of markup (see parse_markup) at (x, y). With width, it's cut off
+        with … to fit, and aligned "left", "center" or "right" in that width. Returns the
+        x just after it."""
+        plain, styles = parse_markup(text, style)
+        return self.styled(x, y, plain, styles, style, width, align)
+
+    def styled(self, x, y, plain, styles, style="", width=None, align="left"):
+        """Like markup(), for text already parsed: a style for each character."""
+        if width is not None:
+            if text_width(plain) > width:
+                cut = take(plain, max(0, width - 1)) if width > 1 else take(plain, width)
+                plain, styles = cut + ("…" if width > 1 else ""), styles[:len(cut)] + [styles[len(cut) - 1] if cut else style]
+            space = width - text_width(plain)
+            left = {"left": 0, "center": space // 2, "right": space}[align]
+            self.text(x, y, " " * left, style)
+            x += left
+        for char, s in zip(plain, styles):
+            x += self.put(x, y, char, s)
+        if width is not None:
+            x = self.text(x, y, " " * (space - left), style)
         return x
 
     def restyle(self, style=""):
@@ -343,11 +478,12 @@ class Canvas:
         (x, y): one cursor move per line, style codes only where they change."""
         return "".join(move(x, y + row) + self._run(row, 0, self.width - 1) for row in range(self.height))
 
-    def diff(self, old):
+    def diff(self, old, top=0):
         """Escape string that turns old (what's on screen) into this canvas,
-        touching only the cells that changed. old=None draws everything."""
+        touching only the cells that changed. old=None draws everything.
+        top: the screen row the canvas starts on."""
         if old is None or (old.width, old.height) != (self.width, self.height):
-            return self.render(0, 0)
+            return self.render(0, top)
         out = []
         for y in range(self.height):
             new_chars, new_styles = self.chars[y], self.styles[y]
@@ -369,7 +505,7 @@ class Canvas:
                     x += 1
                 if end + 1 < self.width and new_chars[end + 1] == "":
                     end += 1
-                out.append(move(start, y) + self._run(y, start, end))
+                out.append(move(start, y + top) + self._run(y, start, end))
                 x = end + 1
         return "".join(out)
 

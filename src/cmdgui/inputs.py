@@ -1,6 +1,7 @@
 import queue
 import re
 import sys
+import time
 
 from .shorts import ESC, write
 from ._platform import Terminal
@@ -57,6 +58,10 @@ def update_state(input):
 # 1006 = SGR encoding, which gives readable decimal coordinates with no size limit
 MOUSE_ON = ESC + "?1003h" + ESC + "?1006h"
 MOUSE_OFF = ESC + "?1003l" + ESC + "?1006l"
+# Bracketed paste: the terminal wraps pasted text in these, so it arrives as one
+# "paste" input instead of keys (a pasted newline isn't Enter)
+PASTE_ON, PASTE_OFF = ESC + "?2004h", ESC + "?2004l"
+PASTE_START, PASTE_END = "\x1b[200~", "\x1b[201~"
 
 # SGR mouse report: ESC [ < button ; x ; y  then M (press/move) or m (release)
 SGR_MOUSE = re.compile(r"\x1b\[<(\d+);(\d+);(\d+)([Mm])")
@@ -105,7 +110,7 @@ def enable():
     """Raw keyboard mode, mouse reporting, and capture print output."""
     _stderr_log.clear()
     _terminal.enable()
-    write(MOUSE_ON)
+    write(MOUSE_ON + PASTE_ON)
     sys.stdout = StreamInterceptor(sys.stdout, "stdout")
     sys.stderr = StreamInterceptor(sys.stderr, "stderr")
 
@@ -116,13 +121,30 @@ def disable():
         sys.stdout = sys.stdout.real
     if isinstance(sys.stderr, StreamInterceptor):
         sys.stderr = sys.stderr.real
-    write(MOUSE_OFF)
+    write(MOUSE_OFF + PASTE_OFF)
     _terminal.disable()
 
 
 def captured_stderr():
     """Everything written to stderr since enable(), e.g. tracebacks."""
     return "".join(_stderr_log)
+
+
+CURSOR_REPORT = re.compile(r"\x1b\[(\d+);(\d+)R")
+
+def cursor_position(timeout=0.5):
+    """Ask the terminal where the cursor is: (x, y), 0-based, or None if it doesn't say.
+    Call after enable() and before reading inputs; anything typed meanwhile is kept."""
+    global _buffer
+    write(ESC + "6n")
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        _buffer += _terminal.read(max(0.0, end - time.monotonic()))
+        match = CURSOR_REPORT.search(_buffer)
+        if match:
+            _buffer = _buffer[:match.start()] + _buffer[match.end():]
+            return int(match.group(2)) - 1, int(match.group(1)) - 1
+    return None
 
 
 def wake():
@@ -146,7 +168,14 @@ def read_inputs(timeout=0.1):
             inputs.append(Input(kind, {"text": text}))
 
     while _buffer:
-        if _buffer.startswith("\x1b[<"):
+        if _buffer.startswith(PASTE_START):
+            end = _buffer.find(PASTE_END)
+            if end < 0:
+                break  # the rest of the paste is still coming
+            text = _buffer[len(PASTE_START):end].replace("\r\n", "\n").replace("\r", "\n")
+            inputs.append(Input("paste", {"text": text}))
+            _buffer = _buffer[end + len(PASTE_END):]
+        elif _buffer.startswith("\x1b[<"):
             match = SGR_MOUSE.match(_buffer)
             if not match:
                 break  # incomplete mouse report, wait for the rest

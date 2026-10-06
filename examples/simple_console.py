@@ -41,10 +41,12 @@ class Console(cmdgui.View):
         stdout
         input
     """
-    heading = Label("Console App!", align="center")
-    input = TextInput(placeholder="type and press Enter, / for commands",
+    heading = Label("[bold]Console App![/] [dim]· / for commands, Tab completes · Ctrl+C quits[/]", align="center")
+    input = TextInput(placeholder="type and press Enter, / for commands", prefix="> ",
+                      suggest=["/" + name for name in COMMANDS],   # dim completion, Tab fills it in
                       on_submit=enter_text, on_change=typed)
     commands = Commands()
 
 view = Console(quit_key=None)  # so "q" can be typed anywhere
+view.focus(view.input)         # ready to type straight away
 view.wait()

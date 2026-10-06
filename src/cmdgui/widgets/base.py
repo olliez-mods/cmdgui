@@ -53,6 +53,7 @@ DEFAULT_THEME = {
     "button_hover": style(reverse=True),
     "button_focus": style(fg="cyan", bold=True),
     "cursor": style(reverse=True),
+    "selection": style(fg="black", bg="bright_blue"), # selected text in a text box
     "selected": style(fg="black", bg="cyan"),
     "selected_unfocused": style(reverse=True),
     "hover": style(bg="bright_black"),          # the menu item under the mouse
@@ -274,6 +275,11 @@ class Widget(_FieldWidget):
         screen cells. char replaces a plain straight line there (None keeps it); junctions
         are kept, and only restyled. Split uses it to show its divider can be dragged."""
         return {}
+
+    def _claims_key(self, key) -> bool:
+        """True to get this key while focused before key bindings and Tab do, e.g. a text
+        box copying its selection with Ctrl+C (which otherwise quits)."""
+        return False
 
     def _child_key(self, key) -> bool:
         """A key pressed while a widget inside this one is focused. Return True

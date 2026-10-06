@@ -3,12 +3,14 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 from ..shorts import *
 from .base import Widget, field, _call
+from .text import _styled
 
 class Menu(Widget):
     """A list to pick from with the arrow keys and Enter, or a click."""
     items: list = field(default_factory=list, kw_only=False)
     selected: int = 0
     select_callback: Optional[Callable[[int, Any], Any]] = field(default=None, alias="on_select")
+    markup: bool = False # read [style]...[/] in the items (off, as items are often data)
     border = True
     focusable = True
     def init(self):
@@ -59,9 +61,10 @@ class Menu(Widget):
                 s = self.theme("selected" if self.focused else "selected_unfocused")
             elif(index == self.hovered):
                 s = self.theme("hover")
-            c.text(0, row, pad_right(" " + str(item), c.width), s)
+            x = c.text(0, row, " ", s)
+            c.styled(x, row, *_styled(self, item, s), s, max(0, c.width - x))
     def content_size(self):
-        width = max([text_width(str(item)) for item in self.items] + [6])
+        width = max([text_width(_styled(self, item, "")[0]) for item in self.items] + [6])
         return width + 2, max(1, min(len(self.items), 10))
 
 
@@ -76,6 +79,7 @@ class Tree(Widget):
     nodes: Any = field(default_factory=dict, kw_only=False)
     selected: Optional[tuple] = None # path of the highlighted node
     select_callback: Optional[Callable[[tuple], Any]] = field(default=None, alias="on_select")
+    markup: bool = False # read [style]...[/] in the labels (paths are still the labels as given)
     border = True
     focusable = True
     def init(self):
@@ -193,18 +197,20 @@ class Tree(Widget):
             if(self.scroll + row == index):
                 s = self.theme("selected" if self.focused else "selected_unfocused")
             arrow = ("▾ " if path in self.expanded else "▸ ") if branch else "  "
-            c.text(0, row, pad_right(fit(" " + "  " * depth + arrow + path[-1], c.width), c.width), s)
+            x = c.text(0, row, fit(" " + "  " * depth + arrow, c.width), s)
+            c.styled(x, row, *_styled(self, path[-1], s), s, max(0, c.width - x))
     def _set_scroll(self, value):
         object.__setattr__(self, "scroll", value) # no redraw, we're already drawing
     def content_size(self):
         rows = self._rows()
-        width = max([text_width(path[-1]) + 2 * depth for path, depth, _ in rows] + [6])
+        width = max([text_width(_styled(self, path[-1], "")[0]) + 2 * depth for path, depth, _ in rows] + [6])
         return width + 4, max(1, min(len(rows), 10))
 
 
 class Table(Widget):
     columns: list = field(default_factory=list, kw_only=False) # header names
     rows: list = field(default_factory=list)                   # lists of values
+    markup: bool = False # read [style]...[/] in the cells and headers (off, as cells are often data)
     border = True
     focusable = True
     def init(self):
@@ -223,20 +229,22 @@ class Table(Widget):
         cells = [[str(v) for v in row] for row in self.rows]
         count = len(self.columns)
         if(not count): return
-        widths = [max([text_width(self.columns[i])] + [text_width(r[i]) for r in cells if i < len(r)]) for i in range(count)]
+        shown = lambda text: text_width(_styled(self, text, "")[0])
+        widths = [max([shown(str(self.columns[i]))] + [shown(r[i]) for r in cells if i < len(r)]) for i in range(count)]
         # Shrink the widest columns until it fits, 2 spaces between columns
         while(sum(widths) + 2 * (count - 1) > c.width and max(widths) > 1):
             widths[widths.index(max(widths))] -= 1
         def line(y, values, s):
             x = 0
             for i in range(count):
-                c.text(x, y, pad_right(values[i] if i < len(values) else "", widths[i]), s)
+                c.styled(x, y, *_styled(self, values[i] if i < len(values) else "", s), s, widths[i])
                 x += widths[i] + 2
         line(0, self.columns, self.theme("header"))
         for row, values in enumerate(cells[self.scroll:self.scroll + c.height - 1]):
             line(row + 1, values, "")
     def content_size(self):
         cells = [[str(v) for v in row] for row in self.rows]
-        widths = [max([text_width(str(col))] + [text_width(r[i]) for r in cells if i < len(r)])
+        shown = lambda text: text_width(_styled(self, text, "")[0])
+        widths = [max([shown(str(col))] + [shown(r[i]) for r in cells if i < len(r)])
                   for i, col in enumerate(self.columns)]
         return min(80, sum(widths) + 2 * max(0, len(widths) - 1)), min(len(self.rows) + 1, 12)
