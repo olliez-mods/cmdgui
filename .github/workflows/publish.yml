@@ -1,14 +1,37 @@
-# Publishes to PyPI when a GitHub Release is published.
-# Needs a trusted publisher on pypi.org: owner Antinoid, repo cmdgui,
+# Publishes to PyPI whenever the version in pyproject.toml changes on main,
+# then tags the commit and makes a GitHub Release for it.
+# Needs a trusted publisher on pypi.org: owner olliez-mods, repo cmdgui,
 # workflow publish.yml, environment pypi.
 name: Publish
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
+    paths: [pyproject.toml]
+  workflow_dispatch:  # run it by hand from the Actions tab, e.g. to retry
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      new: ${{ steps.pypi.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - id: version
+        run: python -c "import tomllib; print('version=' + tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])" >> "$GITHUB_OUTPUT"
+      - id: pypi
+        # pyproject.toml changes for other reasons too: only publish versions PyPI doesn't have
+        run: |
+          status=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/cmdgui/${{ steps.version.outputs.version }}/json")
+          if [ "$status" = "404" ]; then echo "new=true" >> "$GITHUB_OUTPUT"; else echo "new=false" >> "$GITHUB_OUTPUT"; fi
+
   build:
+    needs: check
+    if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +46,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs: [check, build]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -34,3 +57,18 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  release:
+    needs: [check, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to push the tag and create the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - run: gh release create "v${{ needs.check.outputs.version }}" dist/* --target "$GITHUB_SHA" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
