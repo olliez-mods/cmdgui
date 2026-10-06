@@ -8,3 +8,4 @@ from .controls import Button, Select, ProgressBar, Slider, Checkbox, Toggle, Rad
 from .lists import Menu, Tree, Table
 from .stdout import Stdout, DrawMouse
 from .tabs import Tabs
+from .graphics import Graphics

@@ -18,6 +18,7 @@
 | `table` | [`Table`](#table) | Rows and columns |
 | `tabs` | [`Tabs`](#tabs) | Several panels in one place, with a bar to switch between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
+| `graphics` | [`Graphics`](#graphics) | Draw in pixels: lines, shapes, curves |
 
 ## Common to every widget
 
@@ -316,3 +317,77 @@ the bottom and follows new output again.
 
 Anything written to stderr, like a traceback, is printed again after the view closes,
 so errors aren't lost.
+
+## Graphics
+
+```python
+pic = Graphics(background="navy")
+pic.circle(20, 10, 8, "gold", fill=True)
+pic.line(0, 0, 40, 20, "red")
+```
+
+Draws in pixels, several to each character cell. `mode` picks how:
+
+| `mode` | Pixels per cell | Colors | Good for |
+|---|---|---|---|
+| `"half"` (default) | 1×2, using `▀` | every pixel its own color | pictures, games; pixels are square |
+| `"quad"` | 2×2, using `▖▗▘▝▚▞▙▟…` | two per cell; others snap to the nearer one | more detail, with some color fringing; pixels are twice as tall as wide |
+| `"braille"` | 2×4 dots, using `⣿` | one per cell | charts and line drawings; filled shapes look dotted |
+
+All three work in practically every terminal. The drawing code is the same for every
+mode, only the resolution changes: `pixel_width` and `pixel_height` give the size in
+pixels.
+
+Coordinates are in pixels from the top-left, and can be floats. Anything off the edge is
+clipped. A color is anything [`style()`](themes.md#colors) takes (`"red"`, `208`,
+`"#ff8800"`, `(255, 136, 0)`), or `None` for nothing, which shows `background` (or the
+terminal's own background if that's `None` too).
+
+| Method | |
+|---|---|
+| `pixel(x, y, color)`, `get(x, y)` | set or read one pixel |
+| `clear(color=None)` | every pixel |
+| `line(x0, y0, x1, y1, color)` | |
+| `polyline(points, color, closed=False)` | lines joining the points |
+| `rect(x, y, width, height, color, fill=False)` | |
+| `circle(x, y, radius, color, fill=False)` | |
+| `ellipse(x, y, rx, ry, color, fill=False)` | |
+| `arc(x, y, radius, start, end, color)` | angles in degrees, 0 is right, clockwise |
+| `bezier(points, color)` | 3 points for a quadratic curve, 4 for cubic, or more |
+| `polygon(points, color, fill=False)` | filled with the even-odd rule, so a self-crossing star has a hole |
+| `image(rows, x=0, y=0)` | copy in rows of colors; `None` is see-through |
+
+### Keeping the picture, or painting it each time
+
+Whatever you draw stays until you draw over it. When the widget is resized, the part
+that still fits is kept. Drawing works once the view has laid the widget out, so draw
+after creating the view.
+
+Or give it `on_paint=fn(graphics)`, which draws the whole picture. It's called on a
+cleared widget whenever the size or mode changes, and when you call `repaint()`. That's
+the way to handle resizing, and to animate:
+
+```python
+def paint(g):
+    t = time.monotonic()
+    g.circle(g.pixel_width / 2 + 10 * math.cos(t), g.pixel_height / 2, 5, "red", fill=True)
+
+view.every(1 / 30, view.pic.repaint)   # 30 frames a second
+```
+
+`on_paint` and timers run between frames, so the screen never shows half a picture. To
+draw several things from another thread without that, wrap them in `with pic.batch():`.
+
+### Mouse
+
+`on_click(fn(x, y))` gets the pixel clicked, and `on_drag(fn(x, y))` is called as the
+mouse moves with the button held. A cell holds several pixels, so these give the
+top-left pixel of the cell; `mouse_pixel()` does the same at any time.
+
+### Round shapes in quad mode
+
+Quad pixels are twice as tall as they're wide, so `circle()` comes out tall and thin.
+`pixel_aspect` is 2 in quad mode and 1 in the others; for a round circle in every mode,
+use `ellipse(x, y, r, r / g.pixel_aspect, color)`.
+
+See `examples/graphics.py` for an animation and a sketch pad.
