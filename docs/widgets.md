@@ -332,11 +332,18 @@ Draws in pixels, several to each character cell. `mode` picks how:
 |---|---|---|---|
 | `"half"` (default) | 1×2, using `▀` | every pixel its own color | pictures, games; pixels are square |
 | `"quad"` | 2×2, using `▖▗▘▝▚▞▙▟…` | two per cell; others snap to the nearer one | more detail, with some color fringing; pixels are twice as tall as wide |
+| `"sextant"` | 2×3, using `🬀`–`🬻` | two per cell, like quad | three times half's pixels, nearly square |
+| `"octant"` | 2×4 | two per cell, like quad | four times half's pixels, square |
 | `"braille"` | 2×4 dots, using `⣿` | one per cell | charts and line drawings; filled shapes look dotted |
 
-All three work in practically every terminal. The drawing code is the same for every
-mode, only the resolution changes: `pixel_width` and `pixel_height` give the size in
-pixels.
+Half, quad and braille work in practically every terminal. Sextant uses characters
+from Unicode 13 (2020) that newer terminals have (kitty, WezTerm, Ghostty, recent
+iTerm2, Windows Terminal), and octant ones from Unicode 16 (2024) that very few fonts
+have yet. If you see boxes or blanks, the terminal doesn't support that mode: run
+`examples/graphics.py` to check yours.
+
+The drawing code is the same for every mode, only the resolution changes:
+`pixel_width` and `pixel_height` give the size in pixels.
 
 Coordinates are in pixels from the top-left, and can be floats. Anything off the edge is
 clipped. A color is anything [`style()`](themes.md#colors) takes (`"red"`, `208`,
@@ -356,6 +363,28 @@ terminal's own background if that's `None` too).
 | `bezier(points, color)` | 3 points for a quadratic curve, 4 for cubic, or more |
 | `polygon(points, color, fill=False)` | filled with the even-odd rule, so a self-crossing star has a hole |
 | `image(rows, x=0, y=0)` | copy in rows of colors; `None` is see-through |
+| `text(x, y, text, color, scale=1, fix_aspect=True)` | write in a 3×5 pixel font, its top-left at (x, y) |
+| `text_size(text, scale=1, fix_aspect=True)` | how many pixels (wide, tall) `text()` would take |
+
+### Text
+
+`text()` draws in a small pixel font, so it works in every mode and lines up with what
+you draw. It has capitals only (lowercase is drawn as capitals), and draws characters it
+doesn't know as `?`. `scale=2` draws each font pixel as 2×2.
+
+In quad and sextant modes pixels are taller than they're wide, which would make letters
+tall and thin, so `text()` widens them to keep their shape. Pass `fix_aspect=False` to
+draw the font pixel for pixel instead (to both `text()` and `text_size()`, so they
+agree). Centre text with `text_size()`:
+
+```python
+width, height = g.text_size("GAME OVER", 2)
+g.text((g.pixel_width - width) / 2, (g.pixel_height - height) / 2, "GAME OVER", "red", 2)
+```
+
+Each character is 4 pixels wide (with the gap) and each line 6 tall, so in half mode a
+line of text takes 3 rows of the terminal. For small readable text, a `Label` next to
+the picture is often better.
 
 ### Keeping the picture, or painting it each time
 
@@ -384,10 +413,11 @@ draw several things from another thread without that, wrap them in `with pic.bat
 mouse moves with the button held. A cell holds several pixels, so these give the
 top-left pixel of the cell; `mouse_pixel()` does the same at any time.
 
-### Round shapes in quad mode
+### Round shapes in quad and sextant modes
 
-Quad pixels are twice as tall as they're wide, so `circle()` comes out tall and thin.
-`pixel_aspect` is 2 in quad mode and 1 in the others; for a round circle in every mode,
-use `ellipse(x, y, r, r / g.pixel_aspect, color)`.
+Quad pixels are twice as tall as they're wide, so `circle()` comes out tall and thin
+(sextant pixels a little). `pixel_aspect` is 2 in quad mode, 1.33 in sextant and 1 in
+the others; for a round circle in every mode, use
+`ellipse(x, y, r, r / g.pixel_aspect, color)`.
 
 See `examples/graphics.py` for an animation and a sketch pad.

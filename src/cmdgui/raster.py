@@ -56,6 +56,48 @@ def _bezier_point(points, t):
     return points[0]
 
 
+# A 3x5 pixel font: each glyph is 5 rows of 3 pixels, 1 for ink. Capitals only,
+# lowercase is drawn in capitals. Characters it doesn't have are drawn as "?".
+FONT_WIDTH, FONT_HEIGHT = 3, 5
+FONT = {
+    " ": "000 000 000 000 000", "!": "010 010 010 000 010", '"': "101 101 000 000 000",
+    "#": "101 111 101 111 101", "$": "011 110 010 011 110", "%": "101 001 010 100 101",
+    "&": "010 101 010 101 011", "'": "010 010 000 000 000", "(": "001 010 010 010 001",
+    ")": "100 010 010 010 100", "*": "000 101 010 101 000", "+": "000 010 111 010 000",
+    ",": "000 000 000 010 100", "-": "000 000 111 000 000", ".": "000 000 000 000 010",
+    "/": "001 001 010 100 100", "0": "111 101 101 101 111", "1": "010 110 010 010 111",
+    "2": "111 001 111 100 111", "3": "111 001 011 001 111", "4": "101 101 111 001 001",
+    "5": "111 100 111 001 111", "6": "111 100 111 101 111", "7": "111 001 001 010 010",
+    "8": "111 101 111 101 111", "9": "111 101 111 001 111", ":": "000 010 000 010 000",
+    ";": "000 010 000 010 100", "<": "001 010 100 010 001", "=": "000 111 000 111 000",
+    ">": "100 010 001 010 100", "?": "111 001 011 000 010", "@": "010 101 111 100 011",
+    "A": "010 101 111 101 101", "B": "110 101 110 101 110", "C": "011 100 100 100 011",
+    "D": "110 101 101 101 110", "E": "111 100 110 100 111", "F": "111 100 110 100 100",
+    "G": "011 100 101 101 011", "H": "101 101 111 101 101", "I": "111 010 010 010 111",
+    "J": "001 001 001 101 010", "K": "101 101 110 101 101", "L": "100 100 100 100 111",
+    "M": "101 111 111 101 101", "N": "110 101 101 101 101", "O": "010 101 101 101 010",
+    "P": "110 101 110 100 100", "Q": "010 101 101 110 011", "R": "110 101 110 101 101",
+    "S": "011 100 010 001 110", "T": "111 010 010 010 010", "U": "101 101 101 101 111",
+    "V": "101 101 101 101 010", "W": "101 101 111 111 101", "X": "101 101 010 101 101",
+    "Y": "101 101 010 010 010", "Z": "111 001 010 100 111", "[": "110 100 100 100 110",
+    "\\": "100 100 010 001 001", "]": "011 001 001 001 011", "^": "010 101 000 000 000",
+    "_": "000 000 000 000 111", "`": "100 010 000 000 000", "{": "011 010 110 010 011",
+    "|": "010 010 010 010 010", "}": "110 010 011 010 110", "~": "000 011 110 000 000",
+}
+# Each glyph as the (x, y) of its ink
+_GLYPHS = {char: [(x, y) for y, row in enumerate(rows.split()) for x, bit in enumerate(row) if bit == "1"]
+           for char, rows in FONT.items()}
+
+
+def text_size(text: str, scale: int = 1, aspect: float = 1.0) -> tuple[int, int]:
+    """How many pixels wide and tall text() draws text, for pixels aspect times
+    taller than wide."""
+    lines = text.split("\n")
+    width = max(len(line) for line in lines) * (FONT_WIDTH + 1) - 1
+    height = len(lines) * (FONT_HEIGHT + 1) - 1
+    return _round(max(0, width) * scale * aspect), height * scale
+
+
 class Raster:
     """Pixel drawing methods. Subclasses call _init_pixels(), and can override
     _begin() (called before each drawing method) and _changed() (after)."""
@@ -66,11 +108,18 @@ class Raster:
 
     @property
     def pixel_width(self) -> int:
+        self._begin() # up to date with a widget's size
         return self._pw
 
     @property
     def pixel_height(self) -> int:
+        self._begin()
         return self._ph
+
+    @property
+    def pixel_aspect(self) -> float:
+        """How many times taller than wide a pixel is on screen."""
+        return 1.0
 
     def _resize_pixels(self, width, height):
         """Change the size, keeping what fits from the top-left corner."""
@@ -262,6 +311,31 @@ class Raster:
                     self._span(y, _round(xa), _round(xb), color)
         self._polyline(points, color, closed=True) # the edges, so a fill matches its outline
         self._changed()
+
+    def text(self, x: float, y: float, text: str, color: Optional[Color], scale: int = 1,
+             fix_aspect: bool = True) -> None:
+        """Write text in a 3x5 pixel font (capitals only), its top-left at (x, y).
+        scale makes it bigger: 2 draws each font pixel as 2x2. text_size() measures it.
+        fix_aspect: where pixels are taller than wide (quad and sextant), widen the
+        letters to match, so they keep their shape."""
+        color = check_color(color)
+        self._begin()
+        scale = max(1, int(scale))
+        across = scale * (self.pixel_aspect if fix_aspect else 1) # pixels per font pixel, across
+        x0, y = _round(x), _round(y)
+        for line in text.split("\n"):
+            for i, char in enumerate(line):
+                for gx, gy in _GLYPHS.get(char.upper(), _GLYPHS["?"]):
+                    column = i * (FONT_WIDTH + 1) + gx # font pixels from the start of the line
+                    left, right = x0 + _round(column * across), x0 + _round((column + 1) * across) - 1
+                    for row in range(y + gy * scale, y + (gy + 1) * scale):
+                        self._span(row, left, right, color)
+            y += (FONT_HEIGHT + 1) * scale
+        self._changed()
+
+    def text_size(self, text: str, scale: int = 1, fix_aspect: bool = True) -> tuple[int, int]:
+        """How many pixels (wide, tall) text() would draw text in: for centring it."""
+        return text_size(text, scale, self.pixel_aspect if fix_aspect else 1.0)
 
     def image(self, pixels: Sequence[Sequence[Optional[Color]]], x: float = 0, y: float = 0) -> None:
         """Copy rows of colors in with their top-left at (x, y). None is see-through."""

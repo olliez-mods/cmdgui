@@ -8,9 +8,9 @@ from ..inputs import mouse
 from ..raster import Raster, check_color
 from .base import Widget, field, _call
 
-Mode = Literal["half", "quad", "braille"]
+Mode = Literal["half", "quad", "sextant", "octant", "braille"]
 # Pixels per cell, across and down
-SCALES = {"half": (1, 2), "quad": (2, 2), "braille": (2, 4)}
+SCALES = {"half": (1, 2), "quad": (2, 2), "sextant": (2, 3), "octant": (2, 4), "braille": (2, 4)}
 
 
 class Graphics(Widget, Raster):
@@ -18,6 +18,8 @@ class Graphics(Widget, Raster):
 
         "half"     1x2, every pixel its own color, square pixels (the default)
         "quad"     2x2, at most two colors per cell (others snap to the nearer one)
+        "sextant"  2x3, like quad; needs a newer terminal or font (Unicode 13)
+        "octant"   2x4, like quad, square pixels; needs a very new font (Unicode 16)
         "braille"  2x4 dots, one color per cell, for charts and line drawings
 
     Draw any time and the picture stays (when the widget is resized, what fits is
@@ -68,9 +70,9 @@ class Graphics(Widget, Raster):
 
     @property
     def pixel_aspect(self) -> float:
-        """How many times taller than wide a pixel is: 1 for half and braille, 2 for
-        quad (a cell is about twice as tall as it is wide). For a round circle in any
-        mode: ellipse(x, y, r, r / g.pixel_aspect, color)."""
+        """How many times taller than wide a pixel is (a cell is about twice as tall
+        as it is wide): 2 for quad, 1.33 for sextant, 1 for the others. For a round
+        circle in any mode: ellipse(x, y, r, r / g.pixel_aspect, color)."""
         sx, sy = SCALES[self.mode]
         return 2 * sx / sy
 
@@ -150,24 +152,49 @@ def _draw_half(rows, c, bg):
                 chars[cx], styles[cx] = "▀", _style(top, bottom)
 
 
-# Indexed by which quarters are the foreground: 1 top-left, 2 top-right, 4 bottom-left, 8 bottom-right
-QUADRANTS = " ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█"
+def _block_table(start, cells, reused):
+    """Characters indexed by which pixels of a 2-wide cell are the foreground: bit
+    row * 2 + column. Unicode puts the blocks in that order, leaving out the shapes
+    that already had a character (the reused ones)."""
+    chars, code = [], start
+    for mask in range(1 << cells):
+        if mask in reused:
+            chars.append(reused[mask])
+        else:
+            chars.append(chr(code))
+            code += 1
+    return "".join(chars)
 
-def _draw_quad(rows, c, bg):
-    for cy in range(c.height):
-        top_row, bottom_row = rows[2 * cy], rows[2 * cy + 1]
-        chars, styles = c.chars[cy], c.styles[cy]
-        for cx in range(c.width):
-            x = 2 * cx
-            cell = [top_row[x], top_row[x + 1], bottom_row[x], bottom_row[x + 1]]
-            cell = [bg if p is None else p for p in cell]
-            fg, back, mask = _two_colors(cell)
-            if fg == back:
-                chars[cx], styles[cx] = " ", _style(None, fg)
-                continue
-            if fg is None: # nothing can be drawn in the terminal's own background: swap
-                fg, back, mask = back, None, mask ^ 15
-            chars[cx], styles[cx] = QUADRANTS[mask], _style(fg, back)
+QUADRANTS = " ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█"
+SEXTANTS = _block_table(0x1FB00, 6, {0: " ", 21: "▌", 42: "▐", 63: "█"})
+OCTANTS = _block_table(0x1CD00, 8, {
+    0: " ", 1: "\U0001CEA8", 2: "\U0001CEAB", 3: "\U0001FB82", 5: "▘", 10: "▝", 15: "▀",
+    20: "\U0001FBE6", 40: "\U0001FBE7", 63: "\U0001FB85", 64: "\U0001CEA3", 80: "▖", 85: "▌",
+    90: "▞", 95: "▛", 128: "\U0001CEA0", 160: "▗", 165: "▚", 170: "▐", 175: "▜", 192: "▂",
+    240: "▄", 245: "▙", 250: "▟", 252: "▆", 255: "█"})
+
+def _blocks(table, height):
+    """An encoder for cells 2 pixels wide and height tall, at most two colors each."""
+    full = len(table) - 1
+    def draw(rows, c, bg):
+        for cy in range(c.height):
+            cell_rows = rows[height * cy:height * cy + height]
+            chars, styles = c.chars[cy], c.styles[cy]
+            for cx in range(c.width):
+                x = 2 * cx
+                cell = [bg if p is None else p for row in cell_rows for p in row[x:x + 2]]
+                fg, back, mask = _two_colors(cell)
+                if fg == back:
+                    chars[cx], styles[cx] = " ", _style(None, fg)
+                    continue
+                # Put the widget's background (or else the more common color) behind the
+                # character, not in it. Fonts that don't draw these characters themselves
+                # often leave gaps around the glyph, and those should show the background.
+                # None (the terminal's own background) can only go behind.
+                if back is not None and back != bg and (fg is None or fg == bg or 2 * bin(mask).count("1") > len(cell)):
+                    fg, back, mask = back, fg, mask ^ full
+                chars[cx], styles[cx] = table[mask], _style(fg, back)
+    return draw
 
 def _two_colors(cell):
     """Two colors for a cell's pixels, and a bit for each pixel that's the first.
@@ -209,7 +236,8 @@ def _draw_braille(rows, c, bg):
             else:
                 chars[cx], styles[cx] = " ", _style(None, bg)
 
-ENCODERS = {"half": _draw_half, "quad": _draw_quad, "braille": _draw_braille}
+ENCODERS = {"half": _draw_half, "quad": _blocks(QUADRANTS, 2), "sextant": _blocks(SEXTANTS, 3),
+            "octant": _blocks(OCTANTS, 4), "braille": _draw_braille}
 
 
 # --- Colors as RGB, to find the nearer of two -----------------------------------

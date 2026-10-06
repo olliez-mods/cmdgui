@@ -4,6 +4,7 @@ import time
 
 # Pixel graphics. The big picture is drawn by on_paint 30 times a second; switch its
 # mode on the left to compare resolutions, and click it to make ripples.
+# Sextant needs a newer terminal, and octant a very new font: boxes mean no support.
 # The sketch pad keeps what you draw: drag in it, press c to clear. q to quit.
 
 START = time.monotonic()
@@ -46,6 +47,12 @@ def paint(g: Graphics):
             continue
         g.ellipse(x * w, y * h, r, r / aspect, "white" if r < size * 0.25 else "gray")
 
+    # Text in the pixel font, centred along the top, and a clock in the corner
+    title = g.mode.upper()
+    scale = 2 if g.text_size(title, 2)[0] < w / 3 else 1
+    g.text((w - g.text_size(title, scale)[0]) / 2, 2, title, "white", scale)
+    g.text(2, h - 9, time.strftime("%H:%M:%S"), "light_gray")
+
     g.view.info.text = f"{w}x{h} pixels in {g.width}x{g.height} cells"
 
 def ripple(x, y):
@@ -70,7 +77,7 @@ class Demo(View):
         info    scene
         sketch  scene
     """
-    mode = RadioGroup(["half", "quad", "braille"], border=True, preferred_width="26",
+    mode = RadioGroup(["half", "quad", "sextant", "octant", "braille"], border=True, preferred_width="26",
                       on_change=lambda index, mode: view.scene.set(mode=mode))
     info = Label()
     sketch = Graphics(title="sketch · c clears", background="charcoal", on_click=pen_down, on_drag=pen_move)
