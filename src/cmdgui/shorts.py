@@ -262,6 +262,10 @@ class Canvas:
             x += self.put(x, y, char, style)
         return x
 
+    def restyle(self, style=""):
+        """Give every cell the same style, keeping the characters."""
+        self.styles = [[style] * self.width for _ in range(self.height)]
+
     def fill(self, x=0, y=0, w=None, h=None, char=" ", style=""):
         """Fill a rectangle (the whole canvas by default)."""
         w = self.width if w is None else w

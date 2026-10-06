@@ -372,7 +372,7 @@ class View(Group):
                 self._redraw_base = True
                 popup._previous_focus = self.focused
                 if not popup.keep_typing:
-                    self.focus(next((w for w in popup.widgets if w.focusable), None))
+                    self.focus(next((w for w in popup.widgets if w.can_focus), None))
         self._wake()
         return popup
 
@@ -488,7 +488,7 @@ class View(Group):
     def focus_next(self, step: int = 1) -> None:
         """Move focus to the next (or previous, step=-1) focusable widget."""
         with self.lock:
-            focusable = [w for w in self._active_widgets() if w.focusable]
+            focusable = [w for w in self._active_widgets() if w.can_focus]
             if not focusable: return
             if self.focused in focusable:
                 index = (focusable.index(self.focused) + step) % len(focusable)
@@ -590,7 +590,7 @@ class View(Group):
                 top.close()
                 return
             if top and top.keep_typing and not char and key in POPUP_KEYS:
-                target = next((w for w in top.widgets if w.focusable), None)
+                target = next((w for w in top.widgets if w.can_focus), None)
                 if target:
                     target.on_input(input) # e.g. arrows move through a menu while typing
                     return
@@ -616,11 +616,11 @@ class View(Group):
                 # Clicking a focusable widget focuses it (mouse_over skips covered widgets)
                 for widget in reversed(active):
                     keeps_typing = widget._popup is not None and widget._popup.keep_typing
-                    if widget.focusable and widget.mouse_over() and not keeps_typing:
+                    if widget.can_focus and widget.mouse_over() and not keeps_typing:
                         self.focus(widget)
                         break
             for widget in active:
-                widget.on_input(input)
+                if widget.enabled: widget.on_input(input)
             return
 
         for widget in self._all_widgets():
@@ -648,6 +648,7 @@ class View(Group):
                 if widget._dirty:
                     canvas = Canvas(max(0, widget.width), max(0, widget.height))
                     widget.draw(canvas)
+                    if not widget.enabled: canvas.restyle(self.theme.get("disabled", ""))
                     widget._canvas = canvas
                     widget._dirty = False # after drawing, so changes made while drawing don't loop
                     changed = True

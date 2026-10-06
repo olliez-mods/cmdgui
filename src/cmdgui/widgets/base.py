@@ -60,6 +60,7 @@ DEFAULT_THEME = {
     "header": style(bold=True, underline=True),
     "on": style(fg="black", bg="green", bold=True),
     "off": style(fg="bright_black", reverse=True),
+    "disabled": style(fg="bright_black"), # replaces every style in a disabled widget
     "slider": style(fg="cyan"),
     "slider_empty": style(fg="bright_black"),
     "slider_focus": style(fg="cyan", bold=True, reverse=True),
@@ -87,6 +88,7 @@ class Widget(_FieldWidget):
     preferred_height: Size = None
     border: bool = False          # drawn by the view; {b} / {nb} in the layout overrides this
     title: Optional[str] = None   # shown in the border, defaults to the widget's name
+    enabled: bool = True          # False greys it out and ignores the mouse and keyboard
 
     # Class settings (not constructor arguments)
     type_name = None      # name used in layouts, defaults to the class name in snake_case
@@ -155,6 +157,7 @@ class Widget(_FieldWidget):
         elif self.view and any(key in BORDER_ATTRS for key in kwargs):
             self.view._redraw_borders()
         self.refresh()
+        self._drop_focus()
         return self
 
     def copy(self: W) -> W:
@@ -182,10 +185,19 @@ class Widget(_FieldWidget):
                 if self.view: self.view._redraw_borders()
             else:
                 self.refresh()
+            if key == "enabled": self._drop_focus()
+
+    def _drop_focus(self):
+        if not self.enabled and self.focused: self.view.focus(None)
 
     @property
     def focused(self):
         return self.view is not None and self.view.focused is self
+
+    @property
+    def can_focus(self):
+        """True if Tab or a click can focus this widget right now."""
+        return self.focusable and self.enabled
 
     def theme(self, key):
         """A style from the view's theme."""

@@ -120,7 +120,9 @@ The focused widget's border is highlighted.
 | `table` | `Table` | `columns`, `rows`. Scroll with the mouse wheel |
 | `stdout` | `Stdout` | Everything printed, stderr in red. Scroll with the mouse wheel. `clear()`, and `print(...)` / `write(text)` to show text in this box only |
 
-Every widget also takes `border`, `title`, `preferred_width` and `preferred_height`.
+Every widget also takes `border`, `title`, `preferred_width`, `preferred_height` and
+`enabled`. A widget with `enabled=False` is greyed out, can't be focused, and ignores
+clicks and keys; `view.save.enabled = False` turns one off while the program runs.
 The first positional argument is the main content: `Label("text")`, `Menu(items)`,
 `Table(columns)`, `ProgressBar(0.5)`. Callbacks can be passed in (`on_click=`) or set
 later (`button.on_click(fn)`).
