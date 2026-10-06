@@ -5,6 +5,7 @@
 Arrows / click     pick a service           d  deploy      r  restart
 Tab                move between widgets     s  scale       i  cause an incident
 /                  command palette          ?  help        q  quit
+Click a header     sort the fleet table (again to reverse), or 1-8 while it's focused
 
 Everything visual lives in the classes below. The bottom of the file is
 the "real program": a simulation loop that only changes data and widget
@@ -52,6 +53,12 @@ def log(kind, service, message):
                    "warn": ("warning", "[yellow]▲[/]"), "error": ("error", "[red]✖[/]")}[kind]
     view.log.add(f"{mark} [cyan]{service:<9}[/] {escape(message)}", level=level)
 
+
+def uptime_minutes(text):
+    """For sorting the uptime column: "17h 26m" and "5m 03s" in minutes, "—" (down) first."""
+    if text == "—": return -1
+    first, second = text.split()
+    return int(first[:-1]) * 60 + int(second[:-1]) if first.endswith("h") else int(first[:-1])
 
 def uptime(service):
     if service.status == "down": return "—"
@@ -296,7 +303,9 @@ class MissionControl(View):
     services = ServiceList(SERVICES, title="services",
                            on_change=lambda service: show_service(service))
     fleet = Table(["service", "status", "version", "replicas", "uptime", "cpu", "mem", "req/s"],
-                  preferred_height=len(SERVICES) + 1, markup=True)   # coloured statuses
+                  preferred_height=len(SERVICES) + 1, markup=True,   # coloured statuses
+                  sort_keys={"uptime": lambda text: uptime_minutes(text)},
+                  on_change=lambda index, row: pick_service(index))
     cpu = Sparkline(unit="%", max_value=100, warn=70, crit=90, preferred_height="5")
     mem = Sparkline(unit="%", max_value=100, warn=75, crit=90, preferred_height="5")
     rps = Sparkline(unit="/s", preferred_height="5")
@@ -343,7 +352,14 @@ def selected() -> Service:
 def show_service(service):
     for widget, label in ((view.cpu, "cpu"), (view.mem, "memory"), (view.rps, "requests")):
         widget.title = f"{label} · {service.name}"
+    view.fleet.select(SERVICES.index(service))  # the same row in the table, wherever sorting put it
     refresh_charts()
+
+def pick_service(index):
+    """A row picked in the fleet table: show that service."""
+    if index != view.services.selected:
+        view.services.selected = index
+        show_service(SERVICES[index])
 
 def ask_restart():
     service = selected()
@@ -510,6 +526,7 @@ view.on_key("i", incident)
 view.on_key("?", lambda: view.show(view.help))
 view.on_key("/", lambda: (view.focus(view.command), view.command.set(value="/", cursor=1), command_typed("/")))
 view.focus(view.services)
+refresh_overview()  # fill the table first, so it can highlight the selected service
 show_service(selected())
 
 log("ok", "fleet", f"connected to prod-eu-1 · {len(SERVICES)} services")

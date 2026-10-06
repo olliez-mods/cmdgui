@@ -34,8 +34,8 @@ view.confirm.yes.on_click(lambda: (view.log.clear(), view.confirm.close()))
   already open just moves it.
 - `popup.close()`, `popup.is_open`, `popup.on_close(fn)`.
 - `view.alert("Saved!", title="Done")` shows a message with an OK button.
-- A popup with one widget doesn't need a layout: `Popup(Menu(items))`, or a subclass
-  with a single widget.
+- Without a layout, a popup's widgets go one above the other in the order they're
+  declared, so a popup with one widget is just `Popup(Menu(items))`.
 - `popup.copy()` makes a separate copy, to show the same kind of popup twice.
 - A popup is a [`Panel`](widgets.md#tabs) that floats, so it can hold anything a panel
   can, including `Tabs`.

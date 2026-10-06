@@ -28,6 +28,18 @@ The type names are the class names in snake_case: `text_input`, `progress_bar`,
 `radio_group` and so on. See [Widgets](widgets.md) for the full list. Your own widget
 classes are registered the same way, see [Your own widgets](custom-widgets.md).
 
+## No layout
+
+Leave the layout out, and the widgets go one above the other, in the order they're
+declared (class attributes first, then keyword arguments). This works for views,
+panels and popups:
+
+```python
+class Sidebar(Panel):    # the same as layout = "search \n results"
+    search = TextInput()
+    results = Menu()
+```
+
 ## Sizes
 
 Sizes come from the widgets: a button wants to be 1 line tall, so its row is 1 line

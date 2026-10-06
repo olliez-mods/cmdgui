@@ -327,8 +327,33 @@ Table(["name", "score"], rows=[["Ada", 98], ["Linus", 87]])
 ```
 
 `columns` (header names) and `rows` (lists of values). Columns shrink to fit.
-Scroll with the mouse wheel, or focus it (Tab or a click) and use up/down, Page Up/Down
-and Home/End.
+
+**Picking a row.** Focus it (Tab or a click) and move with up/down, Page Up/Down and
+Home/End; the mouse wheel scrolls without moving the highlight. Enter or a click calls
+`on_select(fn(index, row))`, and `on_change(fn(index, row))` is called whenever the
+highlighted row changes. `selected` is the highlighted row's index (or `None`), `value`
+the row itself, and `select(index)` highlights one from code.
+
+**Sorting.** Click a column's header to sort by it, and again to reverse; ▲ or ▼ marks
+it. While the table is focused, the number keys 1 to 9 do the same for the first nine
+columns. From code: `sort("score")`, `sort("score", reverse=True)` or `sort(None)` for the
+order of `rows`; `sort_column` and `sort_reverse` say how it's sorted, and
+`on_sort(fn(column, reverse))` is called when the user sorts. `sortable=False` turns
+the header clicks and keys off.
+
+- Numbers sort by value, and so do cells starting with one, so `9%` comes before `42%`
+  and `1,200` after `900`. Text sorts ignoring case, after numbers.
+- `sort_keys` gives a column its own sort key, by name or index:
+  `Table(..., sort_keys={"uptime": parse_duration})`.
+- Sorting doesn't change `rows`, and indexes (`selected`, the callbacks, `select()`)
+  are always into `rows` as you gave them. So you can replace `rows` as often as you
+  like, as a live table does, and the sorting and highlight stay.
+
+```python
+table = Table(["name", "score"], rows=[["Ada", 98], ["Linus", 87], ["Grace", 91]],
+              on_select=lambda index, row: print("picked", row[0]))
+table.sort("score", reverse=True)   # highest first
+```
 
 ## Tabs
 
@@ -360,8 +385,9 @@ view.settings.show("log")
 ```
 
 A `Panel` is a layout of widgets, written exactly like a `View` subclass: a `layout`
-string and widgets as class attributes, or `Panel(layout, name=widget, ...)`. A panel
-with one widget doesn't need a layout: `Panel(Stdout())`. Each panel is one tab.
+string and widgets as class attributes, or `Panel(layout, name=widget, ...)`. Without a
+layout, the widgets go one above the other in the order they're declared, so a panel
+with one widget is just `Panel(Stdout())`. Each panel is one tab.
 
 A `Tabs` holds panels, as class attributes of a subclass (each `Tabs` gets its own
 copies) or passed in: `Tabs(profile=Profile(), log=Stdout())`. A tab with a single

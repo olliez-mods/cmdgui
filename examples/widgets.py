@@ -1,10 +1,23 @@
-from cmdgui import View, Label, TextInput, TextArea, Button, Toggle, Menu, Table, ProgressBar, Checkbox, Slider, RadioGroup, Select, style
+from cmdgui import View, Label, TextInput, TextArea, Button, Toggle, Menu, Table, ProgressBar, Checkbox, Slider, RadioGroup, Select, style, Split, Panel, Stdout
 import time
 
 # Tab / Shift+Tab or click to move focus, q to quit (unless typing in the text box)
 
 def greet():
     print(f"Hello, {view.name.value or 'stranger'}! 👋")
+
+class RightSide(Panel):
+    scores = Table(["name", "score", "city"],     # click a header to sort, a row to pick it
+                   on_select=lambda i, row: print(f"picked {row[0]}"), rows=[
+        ["Ada", 98, "London"], ["Linus", 87, "Helsinki"], ["Grace", 91, "New York"],
+        ["Guido", 85, "Haarlem"], ["Margaret", 99, "Boston"],
+    ])
+    stdout = Stdout()
+
+class MainSlider(Split):
+    fruit = Menu(["apple", "banana", "cherry", "dragonfruit", "elderberry", "fig", "grape"],
+                 on_select=lambda i, item: print(f"picked {item}"))
+    rightSide = RightSide()
 
 class Demo(View):
 
@@ -13,12 +26,12 @@ class Demo(View):
         view.theme["progress"] = style(fg=opt)
 
     layout = """
-        heading  -       -
-        name     greet   fast
-        fruit    scores  -
-        |        stdout  -
-        notes    sizeSlider    color
-        bar      pick    done
+        heading   -          -
+        name      greet      fast
+        mainSplit -          -
+        |         -          -
+        notes     sizeSlider color
+        bar       pick       done
     """
     heading = Label("[bold]cmdgui widget demo[/]  ·  Tab to move  ·  q to quit", align="center")
     name = TextInput(placeholder="your name", title="name",
@@ -26,12 +39,7 @@ class Demo(View):
                      on_submit=lambda value: print(f"submitted {value!r}"))
     greet = Button("Greet", on_click=greet)
     fast = Toggle("fast", on_change=lambda on: print("fast mode", "on" if on else "off"))
-    fruit = Menu(["apple", "banana", "cherry", "dragonfruit", "elderberry", "fig", "grape"],
-                 on_select=lambda i, item: print(f"picked {item}"))
-    scores = Table(["name", "score", "city"], rows=[
-        ["Ada", 98, "London"], ["Linus", 87, "Helsinki"], ["Grace", 91, "New York"],
-        ["Guido", 85, "Haarlem"], ["Margaret", 99, "Boston"],
-    ])
+    mainSplit = MainSlider()
     notes = TextArea(placeholder="notes (Enter for a new line)")
     sizeSlider = Slider(5, min=1, max=10, step=1, title="size", border=True,
                   on_change=lambda value: print("size", value))

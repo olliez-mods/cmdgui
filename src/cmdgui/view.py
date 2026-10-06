@@ -180,7 +180,9 @@ class Group():
         raise TypeError(f"{type(self).__name__}() got a popup '{name}', only views can hold popups")
 
     def _default_layout(self, provided):
-        return None
+        """With no layout: the widgets one above the other, in the order they're declared
+        (a single widget fills the space)."""
+        return "\n".join(provided) or None
 
     def __getitem__(self, name: str) -> Widget:
         return self.named[name]
@@ -230,9 +232,9 @@ class Panel(Group):
             name = TextInput(placeholder="your name")
             save = Button("Save")
 
-    Written just like a View subclass. A panel with one widget doesn't need a layout:
-    Panel(Menu(items)), or a subclass with a single widget attribute. Popup is a
-    panel that floats over the view."""
+    Written just like a View subclass. Without a layout, the widgets go one above the
+    other in the order they're declared, so a panel with one widget is just
+    Panel(Menu(items)). Popup is a panel that floats over the view."""
     _kind = "panel"
     border: bool = False         # draw a border around the whole panel (Tabs and Popup decide this themselves)
     title: Optional[str] = None  # the tab's name in a Tabs, or the popup's border title
@@ -252,9 +254,6 @@ class Panel(Group):
         if not self.grid:
             raise LayoutError(f"a {self._kind} needs a layout or at least one widget")
         self.init()
-
-    def _default_layout(self, provided):
-        return next(iter(provided)) if len(provided) == 1 else None # a single widget fills the panel
 
     def init(self) -> None:
         """Override to wire up widgets, e.g. self.no.on_click(self.close)."""
@@ -320,8 +319,8 @@ class Popup(Panel):
 
         view.show(Confirm())
 
-    A popup with one widget doesn't need a layout: Popup(Menu(items)), or a
-    subclass with a single widget attribute.
+    Without a layout, the widgets go one above the other in the order they're
+    declared: Popup(Menu(items)) for a popup with one widget.
     Settings can be class attributes or constructor arguments."""
     _kind = "popup"
     modal: bool = True                    # block everything underneath while open
@@ -413,6 +412,7 @@ class View(Group):
         self._rows = 0       # how many rows an inline view has
         self._pending = {"stdout": "", "stderr": ""} # printed text with no newline yet (inline)
         self._stderr_shown = 0 # how much of stderr an inline view has printed above itself
+        self.quit_key = quit_key
         if quit_key:
             self.bindings[quit_key] = self.quit
 
@@ -837,7 +837,13 @@ class View(Group):
             self._print_above(input.type, input.details["text"])
             return
         inputs.update_state(input)
-        if self.too_small and input.type not in ("stdout", "stderr"): return # keep collecting prints
+        if self.too_small and input.type not in ("stdout", "stderr"): # keep collecting prints
+            # Nothing's laid out to get input, but quitting still works
+            if input.type == "key" and input.details["key"] == "ctrl+c": self._interrupt()
+            elif input.type == "key" and self.quit_key and input.details["key"] == self.quit_key \
+                    and self.bindings.get(self.quit_key) == self.quit:
+                self.quit()
+            return
 
         top = self.popups[-1] if self.popups else None
 
@@ -1014,7 +1020,8 @@ class View(Group):
 
     def _draw_too_small(self, need_w, need_h):
         width, height = self.size
-        lines = ["Terminal too small", f"need {need_w}x{need_h}, have {width}x{height}"]
+        lines = ["Terminal too small", f"need {need_w}x{need_h}, have {width}x{height}",
+                 f"{self.quit_key} or Ctrl+C to quit" if self.quit_key else "Ctrl+C to quit"]
         for i, line in enumerate(lines):
             line = fit(line, width)
             self._base.text(max(0, (width - len(line)) // 2), max(0, height // 2 - 1 + i), line)

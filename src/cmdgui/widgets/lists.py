@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Optional
 from ..shorts import *
 from .base import Widget, field, _call
@@ -207,44 +208,184 @@ class Tree(Widget):
         return width + 4, max(1, min(len(rows), 10))
 
 
+_NUMBER = re.compile(r"\s*[-+]?[\d,]*\.?\d+") # a number at the start of a cell: "42", "-1.5", "1,200", "42%"
+
+def _natural_key(value):
+    """Sort numbers (and cells starting with one) by value, before text, which sorts
+    ignoring case. Markup is left out."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool): return (0, value, "")
+    text = strip_markup(str(value))
+    match = _NUMBER.match(text)
+    if match:
+        try:
+            return (0, float(match.group().replace(",", "")), text.lower())
+        except ValueError:
+            pass
+    return (1, 0, text.lower())
+
+
 class Table(Widget):
+    """Rows and columns. Pick a row with the arrow keys or a click (Enter or a click
+    calls on_select), and sort by clicking a column's header (again to reverse), or
+    the number keys 1-9 while focused.
+
+    Indexes are always into rows, as you gave them, whatever the sorting."""
     columns: list = field(default_factory=list, kw_only=False) # header names
     rows: list = field(default_factory=list)                   # lists of values
-    markup: bool = False # read [style]...[/] in the cells and headers (off, as cells are often data)
+    selected: Optional[int] = None # index in rows of the highlighted row, if any
+    sort_column: Optional[int] = None # the column it's sorted by, None for the order of rows
+    sort_reverse: bool = False
+    sort_keys: dict = field(default_factory=dict) # column name or index -> fn(value) giving the sort key
+    sortable: bool = True  # clicking a header (or 1-9) sorts
+    markup: bool = False   # read [style]...[/] in the cells and headers (off, as cells are often data)
+    change_callback: Optional[Callable[[int, Any], Any]] = field(default=None, alias="on_change")
+    select_callback: Optional[Callable[[int, Any], Any]] = field(default=None, alias="on_select")
+    sort_callback: Optional[Callable[[Optional[int], bool], Any]] = field(default=None, alias="on_sort")
     border = True
     focusable = True
     def init(self):
         self.scroll = 0
-    def _scroll_by(self, step):
-        self.scroll = max(0, min(max(0, len(self.rows) - (self.height - 1)), self.scroll + step))
+        self.hovered: Optional[int] = None # index in rows of the row under the mouse
+        self._follow = True # scroll to the selection on the next draw
+
+    def on_change(self, callback: Callable[[int, Any], Any]): # called with (index, row) when the highlighted row changes
+        self.change_callback = callback
+    def on_select(self, callback: Callable[[int, Any], Any]): # called with (index, row) on Enter or a click
+        self.select_callback = callback
+    def on_sort(self, callback: Callable[[Optional[int], bool], Any]): # called with (column, reverse) when the user sorts
+        self.sort_callback = callback
+
+    @property
+    def value(self):
+        """The highlighted row, or None."""
+        return self.rows[self.selected] if self.selected is not None and 0 <= self.selected < len(self.rows) else None
+
+    # --- Sorting ---
+    def _column_index(self, column):
+        if column is None or isinstance(column, int): return column
+        return list(self.columns).index(column)
+
+    def order(self) -> list[int]:
+        """The indexes of rows, in the order they're shown."""
+        indexes = list(range(len(self.rows)))
+        column = self.sort_column
+        if column is None or not 0 <= column < len(self.columns): return indexes
+        key = self.sort_keys.get(column) or self.sort_keys.get(self.columns[column])
+        def row_key(i):
+            row = self.rows[i]
+            value = row[column] if column < len(row) else ""
+            return key(value) if key else _natural_key(value)
+        return sorted(indexes, key=row_key, reverse=self.sort_reverse) # stable: ties keep their order
+
+    def sort(self, column=None, reverse: bool = False) -> None:
+        """Sort by a column (its name or index), or None for the order of rows. The
+        highlighted row stays highlighted."""
+        self.set(sort_column=self._column_index(column), sort_reverse=reverse)
+        self._follow = True
+
+    def _sort_by_user(self, column):
+        """A header click or number key: sort by it, or reverse if it already is."""
+        if not self.sortable or not 0 <= column < len(self.columns): return
+        reverse = not self.sort_reverse if column == self.sort_column else False
+        self.sort(column, reverse)
+        _call(self.sort_callback, column, reverse)
+
+    # --- Selection ---
+    def select(self, index: Optional[int]) -> None:
+        """Highlight a row by its index in rows (None for none), calling on_change if it moved."""
+        if index is not None: index = max(0, min(len(self.rows) - 1, index)) if self.rows else None
+        if index != self.selected:
+            self.selected = index
+            self._follow = True
+            if index is not None: _call(self.change_callback, index, self.rows[index])
+
+    def _move(self, step):
+        order = self.order()
+        if not order: return
+        position = order.index(self.selected) if self.selected in order else (-1 if step > 0 else len(order))
+        self.select(order[max(0, min(len(order) - 1, position + step))])
+
+    def _choose(self):
+        if self.value is not None: _call(self.select_callback, self.selected, self.value)
+
+    # --- Layout ---
+    def _layout(self, width):
+        """The column widths and where each starts, shrinking the widest to fit."""
+        cells = [[str(v) for v in row] for row in self.rows]
+        shown = lambda text: text_width(_styled(self, text, "")[0])
+        widths = [max([shown(str(self.columns[i])) + (2 if i == self.sort_column else 0)] +
+                      [shown(r[i]) for r in cells if i < len(r)]) for i in range(len(self.columns))]
+        # Shrink the widest columns until it fits, 2 spaces between columns
+        while(sum(widths) + 2 * (len(widths) - 1) > width and max(widths, default=0) > 1):
+            widths[widths.index(max(widths))] -= 1
+        starts, x = [], 0
+        for w in widths:
+            starts.append(x)
+            x += w + 2
+        return cells, widths, starts
+
+    def _row_at(self, y):
+        """The index in rows of the row drawn at y (1 is the first under the header), or None."""
+        order = self.order()
+        position = self.scroll + y - 1
+        return order[position] if y >= 1 and 0 <= position < len(order) else None
+
     def on_input(self, input):
-        if(input.type == "mouse_scroll" and self.mouse_over()):
-            self._scroll_by(-1 if input.details["direction"] == "up" else 1)
-        elif(input.type == "key"):
+        if(input.type == "key"):
+            key = input.details["key"]
             page = max(1, self.height - 2) # rows under the header, keeping one in view
             moves = {"up": -1, "down": 1, "page_up": -page, "page_down": page,
                      "home": -len(self.rows), "end": len(self.rows)}
-            if(input.details["key"] in moves): self._scroll_by(moves[input.details["key"]])
+            if(key in moves): self._move(moves[key])
+            elif(key in ("enter", "space")): self._choose()
+            elif(len(key) == 1 and key in "123456789"): self._sort_by_user(int(key) - 1)
+            return
+        if(not input.type.startswith("mouse")): return
+        x, y = self.mouse_pos()
+        over = self._row_at(y) if self.mouse_over() else None
+        if(over != self.hovered): self.hovered = over
+        if(input.type == "mouse_scroll" and self.mouse_over()):
+            step = -1 if input.details["direction"] == "up" else 1
+            self.scroll = max(0, min(max(0, len(self.rows) - (self.height - 1)), self.scroll + step))
+            self.hovered = self._row_at(y)
+        elif(input.type == "mouse_down" and input.details["button"] == 0 and self.mouse_over()):
+            if(y == 0): # the header
+                _, widths, starts = self._layout(self.width)
+                column = next((i for i, (start, w) in enumerate(zip(starts, widths)) if start <= x < start + w + 2), None)
+                if(column is not None): self._sort_by_user(column)
+            elif(over is not None):
+                self.select(over)
+                self._choose()
+
     def draw(self, c):
-        cells = [[str(v) for v in row] for row in self.rows]
         count = len(self.columns)
         if(not count): return
-        shown = lambda text: text_width(_styled(self, text, "")[0])
-        widths = [max([shown(str(self.columns[i]))] + [shown(r[i]) for r in cells if i < len(r)]) for i in range(count)]
-        # Shrink the widest columns until it fits, 2 spaces between columns
-        while(sum(widths) + 2 * (count - 1) > c.width and max(widths) > 1):
-            widths[widths.index(max(widths))] -= 1
+        cells, widths, starts = self._layout(c.width)
+        order = self.order()
+        body = max(0, c.height - 1)
+        if(self._follow and self.selected in order): # keep the selection in view
+            position = order.index(self.selected)
+            if(position < self.scroll): self._set_scroll(position)
+            if(position >= self.scroll + body): self._set_scroll(position - body + 1)
+            self._follow = False
+        self._set_scroll(max(0, min(self.scroll, len(order) - body)))
         def line(y, values, s):
-            x = 0
+            c.fill(0, y, c.width, 1, style=s)
             for i in range(count):
-                c.styled(x, y, *_styled(self, values[i] if i < len(values) else "", s), s, widths[i])
-                x += widths[i] + 2
-        line(0, self.columns, self.theme("header"))
-        for row, values in enumerate(cells[self.scroll:self.scroll + c.height - 1]):
-            line(row + 1, values, "")
+                c.styled(starts[i], y, *_styled(self, values[i] if i < len(values) else "", s), s, widths[i])
+        header = [str(name) for name in self.columns]
+        if(self.sort_column is not None and 0 <= self.sort_column < count):
+            arrow = " ▼" if self.sort_reverse else " ▲"
+            name = _styled(self, header[self.sort_column], "")[0]
+            header[self.sort_column] = fit(escape(name) if self.markup else name, max(0, widths[self.sort_column] - 2)) + arrow
+        line(0, header, self.theme("header"))
+        for y, index in enumerate(order[self.scroll:self.scroll + body], start=1):
+            if(index == self.selected): s = self.theme("selected" if self.focused else "selected_unfocused")
+            elif(index == self.hovered): s = self.theme("hover")
+            else: s = ""
+            line(y, cells[index], s)
+    def _set_scroll(self, value):
+        object.__setattr__(self, "scroll", value) # no redraw, we're already drawing
     def content_size(self):
-        cells = [[str(v) for v in row] for row in self.rows]
-        shown = lambda text: text_width(_styled(self, text, "")[0])
-        widths = [max([shown(str(col))] + [shown(r[i]) for r in cells if i < len(r)])
-                  for i, col in enumerate(self.columns)]
+        _, widths, _ = self._layout(10 ** 6)
         return min(80, sum(widths) + 2 * max(0, len(widths) - 1)), min(len(self.rows) + 1, 12)
