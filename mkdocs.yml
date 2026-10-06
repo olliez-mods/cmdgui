@@ -1,0 +1,58 @@
+# The docs website, built from docs/ by .github/workflows/docs.yml and hosted on
+# GitHub Pages. Preview it locally: pip install "mkdocs<2" mkdocs-material, then mkdocs serve
+site_name: cmdgui
+site_description: Simple terminal GUIs in Python. Draw your layout as text, the view runs itself.
+site_url: https://olliez-mods.github.io/cmdgui/
+repo_url: https://github.com/olliez-mods/cmdgui
+repo_name: olliez-mods/cmdgui
+edit_uri: edit/main/docs/
+
+nav:
+  - Overview: index.md
+  - Layouts: layouts.md
+  - Widgets: widgets.md
+  - Popups: popups.md
+  - Keys and focus: keys-and-focus.md
+  - Themes and colors: themes.md
+  - Your own widgets: custom-widgets.md
+
+theme:
+  name: material
+  icon:
+    logo: material/console
+  features:
+    - navigation.sections
+    - navigation.top          # a back-to-top button
+    - search.highlight
+    - content.code.copy       # copy buttons on code blocks
+    - content.action.edit     # an edit-on-GitHub link on each page
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: blue grey
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+  font:
+    code: JetBrains Mono      # draws the box-drawing characters in the layout diagrams cleanly
+
+markdown_extensions:
+  - toc:
+      permalink: true         # a link icon on each heading
+  - tables
+  - admonition
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+
+validation:
+  links:
+    anchors: warn             # report links to headings that don't exist
