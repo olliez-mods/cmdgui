@@ -97,15 +97,16 @@ class Widget(_FieldWidget):
     def __init__(self, *args, **kwargs):
         self._ready = False # attribute changes only redraw once set up
         self._dirty = True
-        self._canvas = None # last drawn content
+        self._canvas: Optional[Canvas] = None # last drawn content
         # Where the widget is on screen. The view sets these from the layout;
         # set them in init() for widgets added with view.add()
         self.x = 0
         self.y = 0
         self.width = 0
         self.height = 0
-        self.name = None # set by the view for layout widgets
-        self.view = None
+        self.name: Optional[str] = None # set by the view for layout widgets
+        self.view: Any = None # the View showing this widget
+        self._popup: Any = None # the Popup this widget is in, if any
         for name, info in type(self)._fields.items():
             value = info.default_factory() if info.default_factory else getattr(type(self), name, None)
             object.__setattr__(self, name, value)
@@ -156,7 +157,7 @@ class Widget(_FieldWidget):
         for key, value in vars(new).items():
             if isinstance(value, (list, dict, set)):
                 new.__dict__[key] = copy.copy(value)
-        new.__dict__.update(view=None, name=None, _canvas=None, _dirty=True)
+        new.__dict__.update(view=None, name=None, _popup=None, _canvas=None, _dirty=True)
         return new
 
     if not TYPE_CHECKING:
@@ -191,9 +192,15 @@ class Widget(_FieldWidget):
         return mouse.x - self.x, mouse.y - self.y
 
     def mouse_over(self):
-        """True if the mouse is inside this widget."""
+        """True if the mouse is inside this widget (and not on a popup covering it)."""
         x, y = self.mouse_pos()
-        return 0 <= x < self.width and 0 <= y < self.height
+        if not (0 <= x < self.width and 0 <= y < self.height): return False
+        return self.view is None or self.view._layer_at(mouse.x, mouse.y) is self._popup
+
+    def content_size(self) -> tuple[Optional[int], Optional[int]]:
+        """The size the content would like (width, height), None if it doesn't
+        matter. Popups use it to size themselves."""
+        return None, None
 
     # --- Override these ---
     def init(self): pass             # set up attributes; the size isn't known yet
@@ -248,6 +255,10 @@ class Text(Widget):
         pad = {"left": pad_right, "center": pad_center, "right": pad_left}[self.align]
         for i, line in enumerate(wrap(str(self.text), c.width)[:c.height]):
             c.text(0, i, pad(line, c.width), self.style or self.theme("text"))
+    def content_size(self):
+        lines = str(self.text).split("\n")
+        width = min(60, max(text_width(line) for line in lines))
+        return width, max(1, len(wrap(str(self.text), width)))
 
 
 class Label(Text):
@@ -256,6 +267,8 @@ class Label(Text):
     def draw(self, c):
         pad = {"left": pad_right, "center": pad_center, "right": pad_left}[self.align]
         c.text(0, c.height // 2, pad(str(self.text), c.width), self.style or self.theme("text"))
+    def content_size(self):
+        return text_width(str(self.text)), 1
 
 
 class Button(Widget):
@@ -284,6 +297,8 @@ class Button(Widget):
         mid = c.height // 2 # vertically centred
         s = self.theme("button_hover" if self.hovered else "button_focus" if self.focused else "button")
         c.text(0, mid, "[" + pad_center(self.text, c.width - 2) + "]", s)
+    def content_size(self):
+        return text_width(self.text) + 4, 1
 
 
 class TextInput(Widget):
@@ -348,6 +363,8 @@ class TextInput(Widget):
             c.put(x, 0, char, self.theme("cursor"))
     def _set_scroll(self, value):
         object.__setattr__(self, "scroll", value) # no redraw, we're already drawing
+    def content_size(self):
+        return max(20, text_width(self.placeholder) + 1), 1
 
 
 class ProgressBar(Widget):
@@ -363,6 +380,8 @@ class ProgressBar(Widget):
         c.text(0, mid, "█" * filled, self.theme("progress"))
         c.text(filled, mid, "░" * (bar - filled), self.theme("progress_empty"))
         c.text(bar, mid, label)
+    def content_size(self):
+        return 20, 1
 
 
 class Checkbox(Widget):
@@ -383,6 +402,8 @@ class Checkbox(Widget):
     def draw(self, c):
         s = self.theme("button_focus") if self.focused else ""
         c.text(0, c.height // 2, fit(("[x] " if self.checked else "[ ] ") + self.text, c.width), s)
+    def content_size(self):
+        return text_width(self.text) + 4, 1
 
 
 class Toggle(Checkbox):
@@ -391,6 +412,8 @@ class Toggle(Checkbox):
         mid = c.height // 2
         x = c.text(0, mid, " ON  " if self.checked else " OFF ", self.theme("on" if self.checked else "off"))
         c.text(x + 1, mid, fit(self.text, c.width - x - 1), self.theme("button_focus") if self.focused else "")
+    def content_size(self):
+        return text_width(self.text) + 6, 1
 
 
 class Menu(Widget):
@@ -402,6 +425,7 @@ class Menu(Widget):
     focusable = True
     def init(self):
         self.scroll = 0
+        self.hovered = None
     def on_select(self, callback: Callable[[int, Any], Any]): # called with (index, item) on Enter or click
         self.select_callback = callback
     def _choose(self):
@@ -425,7 +449,12 @@ class Menu(Widget):
         elif(input.type == "mouse_scroll" and self.mouse_over()):
             step = -1 if input.details["direction"] == "up" else 1
             self.scroll = max(0, min(max(0, len(self.items) - self.height), self.scroll + step))
-
+        elif(input.type == "mouse_move"):
+            self.hovered = None
+            if(not self.mouse_over()): return
+            index = self.scroll + self.mouse_pos()[1]
+            if(index < len(self.items)):
+                self.hovered = index
     def draw(self, c):
         # Keep the selection in view
         if(self.selected < self.scroll): object.__setattr__(self, "scroll", self.selected)
@@ -435,7 +464,12 @@ class Menu(Widget):
             s = ""
             if(index == self.selected):
                 s = self.theme("selected" if self.focused else "selected_unfocused")
+            elif(index == self.hovered):
+                pass#s = self.theme("button_hover")
             c.text(0, row, pad_right(" " + str(item), c.width), s)
+    def content_size(self):
+        width = max([text_width(str(item)) for item in self.items] + [6])
+        return width + 2, max(1, min(len(self.items), 10))
 
 
 class Table(Widget):
@@ -464,6 +498,11 @@ class Table(Widget):
         line(0, self.columns, self.theme("header"))
         for row, values in enumerate(cells[self.scroll:self.scroll + c.height - 1]):
             line(row + 1, values, "")
+    def content_size(self):
+        cells = [[str(v) for v in row] for row in self.rows]
+        widths = [max([text_width(str(col))] + [text_width(r[i]) for r in cells if i < len(r)])
+                  for i, col in enumerate(self.columns)]
+        return min(80, sum(widths) + 2 * max(0, len(widths) - 1)), min(len(self.rows) + 1, 12)
 
 
 class Stdout(Widget):
@@ -492,6 +531,12 @@ class Stdout(Widget):
             self.refresh()
     def _set_scroll(self, value):
         object.__setattr__(self, "scroll", value)
+    def clear(self):
+        """Remove everything shown so far."""
+        self.lines = [["", ""]]
+        self._set_scroll(0)
+    def content_size(self):
+        return 40, 8
     def draw(self, c):
         lines = self.lines[:-1] if self.lines[-1][0] == "" else self.lines # skip empty line after a trailing \n
         wrapped = [(part, s) for text, s in lines for part in wrap(text, c.width)]

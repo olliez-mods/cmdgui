@@ -114,7 +114,7 @@ The focused widget's border is highlighted.
 | `toggle` | `Toggle` | An on/off switch, same API as `Checkbox` |
 | `menu` | `Menu` | `items`, `selected`, `on_select(fn(index, item))` |
 | `table` | `Table` | `columns`, `rows`. Scroll with the mouse wheel |
-| `stdout` | `Stdout` | Everything printed, stderr in red. Scroll with the mouse wheel |
+| `stdout` | `Stdout` | Everything printed, stderr in red. Scroll with the mouse wheel. `clear()` |
 
 Every widget also takes `border`, `title`, `preferred_width` and `preferred_height`.
 The first positional argument is the main content: `Label("text")`, `Menu(items)`,
@@ -124,6 +124,58 @@ later (`button.on_click(fn)`).
 Setting an attribute redraws the widget: `view.bar.value = 0.5` just works, and
 `widget.set(text=..., align=...)` changes several at once. If you change a list in
 place (`view.menu.items.append(...)`), call `widget.refresh()`.
+
+## Popups
+
+A popup floats over the layout. It has its own layout and widgets, just like a view,
+and sizes itself to fit them:
+
+```python
+from cmdgui import View, Popup, Label, Button, Stdout
+
+class Confirm(Popup):
+    layout = """
+        message  -
+        yes      no
+    """
+    title = "Clear the log?"
+    message = Label("This can't be undone.")
+    yes = Button("Clear")
+    no = Button("Cancel")
+
+    def init(self):                    # wire up the popup's own widgets
+        self.no.on_click(self.close)
+
+class App(View):
+    layout = "clear \n log"
+    clear = Button("Clear log", on_click=lambda: view.show(view.confirm))
+    log = Stdout()
+    confirm = Confirm()                # popups can live on the view too
+
+view = App()
+view.confirm.yes.on_click(lambda: (view.log.clear(), view.confirm.close()))
+```
+
+- `view.show(popup)` opens it in the middle, or use `below=widget`, `above=widget` or
+  `at=(x, y)`. It flips to the other side if there's no room.
+- `popup.close()`, `popup.is_open`, `popup.on_close(fn)`.
+- `view.alert("Saved!", title="Done")` shows a message with an OK button.
+- A popup with one widget doesn't need a layout: `Popup(Menu(items))`, or a subclass
+  with a single widget.
+
+Settings, as class attributes or constructor arguments:
+
+| Setting | Default | |
+|---|---|---|
+| `modal` | `True` | blocks clicks and focus for everything underneath |
+| `close_on_escape` | `True` | |
+| `close_on_outside_click` | `False` | for a modal popup the click just closes it; otherwise it goes through too |
+| `keep_typing` | `False` | the focused text box keeps getting typed text, while arrows and Enter go to the popup (autocomplete, command menus) |
+| `border`, `title` | `True`, `None` | |
+| `width`, `height` | `None` | outer size; `None` fits the content |
+
+Inside a popup, a widget's border title is only shown if you set its `title`.
+`examples/simple_console.py` has a `/` command menu and `examples/popups.py` has a dialog and a dropdown.
 
 ## Keys and focus
 
@@ -174,6 +226,9 @@ view = View("now", now=Clock("12:00"))
 
 Annotated attributes are fields: keyword arguments by default, positional with
 `field(kw_only=False)`. Editors autocomplete and type-check them like a dataclass.
+
+Override `content_size()` to return the `(width, height)` your content wants, so
+popups can size themselves around it (`None` for either means "don't care").
 
 `Canvas` has `put`, `text`, `fill` and `border`; `self.mouse_pos()` and
 `self.mouse_over()` give the mouse relative to the widget; `self.theme("key")`

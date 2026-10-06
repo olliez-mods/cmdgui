@@ -146,11 +146,12 @@ class Placement:
     fits: bool     # False if the screen is smaller than that
 
 
-def place(layout, width, height, sizes=None, borders=None):
+def place(layout, width, height, sizes=None, borders=None, outer=False):
     """Work out where every widget goes on a width x height screen.
 
     sizes:   name -> (width spec, height spec), see parse_size
     borders: name -> True if the widget has a border
+    outer:   always leave room for a border around the whole layout (popups)
 
     Border lines sit between grid rows/columns and are shared by neighbours,
     so two bordered widgets next to each other have one line between them."""
@@ -161,6 +162,8 @@ def place(layout, width, height, sizes=None, borders=None):
 
     col_lines = _lines(layout.cols, [(s.col, s.colspan) for s in slots if borders.get(s.name)])
     row_lines = _lines(layout.rows, [(s.row, s.rowspan) for s in slots if borders.get(s.name)])
+    if outer:
+        col_lines[0] = col_lines[-1] = row_lines[0] = row_lines[-1] = 1
     col_widths, min_width = _size_tracks(width, layout.cols, col_lines,
                                          [(s.col, s.colspan, *specs[s.name][0]) for s in slots])
     row_heights, min_height = _size_tracks(height, layout.rows, row_lines,
