@@ -18,7 +18,7 @@ class LayoutError(ValueError):
 @dataclass
 class Slot:
     name: str
-    type: str
+    type: str  # None when the layout just names a widget that was passed in
     row: int
     col: int
     rowspan: int = 1
@@ -33,11 +33,12 @@ class Layout:
     slots: dict  # name -> Slot, in the order they were declared
 
 
-def parse_layout(text, types=None):
+def parse_layout(text, types=None, names=()):
     """Parse a layout string into a Layout.
 
     types is an optional collection of known type names; if given, unknown
-    types are an error."""
+    types are an error. names are widgets provided by the caller: a bare word
+    matching one of them refers to that widget instead of a type."""
     lines = [line.split() for line in text.splitlines() if line.strip()]
     if not lines: raise LayoutError("layout is empty")
 
@@ -79,10 +80,12 @@ def parse_layout(text, types=None):
                 continue
             if name is None:
                 name = type_
+                if name in names:
+                    type_ = None # a provided widget, no type needed
             elif name in slot_types:
                 raise LayoutError(f"{where}: '{name}' is already declared; repeat it as just '{name}' to span")
 
-            if types is not None and type_ not in types:
+            if types is not None and type_ is not None and type_ not in types:
                 known = ", ".join(sorted(types))
                 raise LayoutError(f"{where}: unknown widget type '{type_}' (known: {known})")
             slot_types[name] = type_
@@ -107,9 +110,8 @@ def _build_slots(grid, slot_types, slot_borders):
         top, left = min(rows), min(cols)
         rowspan, colspan = max(rows) - top + 1, max(cols) - left + 1
         if len(cells[name]) != rowspan * colspan:
-            raise LayoutError(
-                f"'{name}' doesn't form a rectangle; to add a second {type_}, "
-                f"give it its own name: {type_}[other_name]")
+            hint = f"; to add a second {type_}, give it its own name: {type_}[other_name]" if type_ else ""
+            raise LayoutError(f"'{name}' doesn't form a rectangle{hint}")
         slots[name] = Slot(name, type_, top, left, rowspan, colspan, slot_borders[name])
     return slots
 

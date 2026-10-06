@@ -1,6 +1,42 @@
+from __future__ import annotations
+
+import copy
+import inspect
 import re
+import sys
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional, TypeVar, Union
 from .shorts import *
 from .inputs import Input, mouse
+
+if sys.version_info >= (3, 11):
+    from typing import dataclass_transform
+else:
+    def dataclass_transform(**kwargs):
+        return lambda cls: cls
+
+# A size: 5 or "5" exactly, "5+" at least 5, "5-10" between, None for any size
+Size = Union[int, str, None]
+Align = Literal["left", "center", "right"]
+W = TypeVar("W", bound="Widget")
+
+_MISSING = object()
+
+
+class _Field:
+    def __init__(self, default, default_factory, kw_only, alias):
+        self.default = default
+        self.default_factory = default_factory
+        self.kw_only = kw_only
+        self.alias = alias
+
+
+def field(default: Any = _MISSING, *, default_factory: Optional[Callable[[], Any]] = None,
+          kw_only: bool = True, alias: Optional[str] = None) -> Any:
+    """Customise a widget field:
+        items: list = field(default_factory=list)       # a fresh list per widget
+        text: str = field(default="", kw_only=False)     # can be passed positionally
+        callback: ... = field(default=None, alias="on_click")  # constructor argument name"""
+    return _Field(default, default_factory, kw_only, alias)
 
 # Type name -> widget class, for layout strings. Filled in automatically.
 WIDGET_TYPES = {}
@@ -32,25 +68,34 @@ LAYOUT_ATTRS = {"preferred_width", "preferred_height", "border", "title"}
 POSITION_ATTRS = {"x", "y", "width", "height", "name", "view"}
 
 
-class Widget():
-    type_name = None # name used in layouts, defaults to the class name in snake_case
+@dataclass_transform(kw_only_default=True, field_specifiers=(field,))
+class _FieldWidget:
+    """Marks widgets as dataclass-like for editors: annotated class attributes
+    become constructor arguments, with autocomplete and type checking."""
 
-    # Sizes of the content (not counting the border): 5 or "5" exactly,
-    # "5+" at least 5, "5-10" between, None for any size
-    preferred_width = None
-    preferred_height = None
-    border = False # drawn by the view; {b} / {nb} in the layout overrides this
-    title = None   # shown in the border, defaults to the widget's name
+
+class Widget(_FieldWidget):
+    # Fields: annotated attributes become constructor arguments (keyword-only
+    # unless field(kw_only=False)). Subclasses can change a default by just
+    # assigning it, e.g. `border = True`.
+    preferred_width: Size = None  # sizes of the content, not counting the border
+    preferred_height: Size = None
+    border: bool = False          # drawn by the view; {b} / {nb} in the layout overrides this
+    title: Optional[str] = None   # shown in the border, defaults to the widget's name
+
+    # Class settings (not constructor arguments)
+    type_name = None      # name used in layouts, defaults to the class name in snake_case
     focusable = False     # can be focused with Tab or a click, and then gets key presses
     captures_text = False # when focused, typed characters go to it before key bindings
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+        _collect_fields(cls)
         name = cls.__dict__.get("type_name") or re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).lower()
         WIDGET_TYPES[name] = cls
 
-    def __init__(self):
-        self._ready = False # attribute changes only redraw once init() is done
+    def __init__(self, *args, **kwargs):
+        self._ready = False # attribute changes only redraw once set up
         self._dirty = True
         self._canvas = None # last drawn content
         # Where the widget is on screen. The view sets these from the layout;
@@ -61,19 +106,72 @@ class Widget():
         self.height = 0
         self.name = None # set by the view for layout widgets
         self.view = None
+        for name, info in type(self)._fields.items():
+            value = info.default_factory() if info.default_factory else getattr(type(self), name, None)
+            object.__setattr__(self, name, value)
         self.init()
+        self._apply(args, kwargs)
         self._ready = True
 
-    def __setattr__(self, key, value):
-        # Changing any public attribute redraws the widget, so `button.text = "Go"` just works.
-        # Mutating a list in place (self.items.append) doesn't, call self.refresh() for that.
-        object.__setattr__(self, key, value)
-        if key.startswith("_") or not self.__dict__.get("_ready") or key in POSITION_ATTRS:
-            return
-        if key in LAYOUT_ATTRS:
-            if self.view: self.view.relayout()
-        else:
-            self.refresh()
+    def _apply(self, args, kwargs):
+        """Set attributes from constructor-style arguments."""
+        fields = type(self)._fields
+        positional = [name for name, info in fields.items() if not info.kw_only]
+        if len(args) > len(positional):
+            raise TypeError(f"{type(self).__name__}() takes {len(positional)} positional "
+                            f"argument{'s' if len(positional) != 1 else ''} ({', '.join(positional) or 'none'}), "
+                            f"got {len(args)}")
+        names = {(info.alias or name): name for name, info in fields.items()}
+        values = dict(zip(positional, args))
+        for key, value in kwargs.items():
+            if key in names:
+                name = names[key]
+            elif not key.startswith("_") and key in self.__dict__:
+                name = key # widgets that set attributes in init() instead of declaring fields
+            else:
+                raise TypeError(f"{type(self).__name__}() got an unexpected argument '{key}' "
+                                f"(accepts: {', '.join(sorted(names))})")
+            if name in values:
+                raise TypeError(f"{type(self).__name__}() got '{key}' twice")
+            values[name] = value
+        for name, value in values.items():
+            setattr(self, name, value)
+
+    def set(self: W, **kwargs) -> W:
+        """Change several attributes at once, redrawing once: label.set(text="Hi", align="center")"""
+        object.__setattr__(self, "_ready", False)
+        try:
+            self._apply((), kwargs)
+        finally:
+            object.__setattr__(self, "_ready", True)
+        if self.view and any(key in LAYOUT_ATTRS for key in kwargs):
+            self.view.relayout()
+        self.refresh()
+        return self
+
+    def copy(self: W) -> W:
+        """A separate copy of this widget, not attached to any view. Lists and
+        dicts are copied so the two don't share items; callbacks are shared."""
+        new = copy.copy(self)
+        for key, value in vars(new).items():
+            if isinstance(value, (list, dict, set)):
+                new.__dict__[key] = copy.copy(value)
+        new.__dict__.update(view=None, name=None, _canvas=None, _dirty=True)
+        return new
+
+    if not TYPE_CHECKING:
+        # Hidden from type checkers: a __setattr__ makes them accept any attribute
+        # name, and we want typos like `label.txt = ...` flagged.
+        def __setattr__(self, key, value):
+            # Changing any public attribute redraws the widget, so `button.text = "Go"` just works.
+            # Mutating a list in place (self.items.append) doesn't, call self.refresh() for that.
+            object.__setattr__(self, key, value)
+            if key.startswith("_") or not self.__dict__.get("_ready") or key in POSITION_ATTRS:
+                return
+            if key in LAYOUT_ATTRS:
+                if self.view: self.view.relayout()
+            else:
+                self.refresh()
 
     @property
     def focused(self):
@@ -99,11 +197,42 @@ class Widget():
 
     # --- Override these ---
     def init(self): pass             # set up attributes; the size isn't known yet
-    def draw(self, c:Canvas): pass   # draw into c, which is exactly width x height
-    def on_input(self, input:Input): pass # key inputs only arrive while focused
+    def draw(self, c: Canvas): pass  # draw into c, which is exactly width x height
+    def on_input(self, input: Input): pass # key inputs only arrive while focused
     def on_resize(self): pass        # called after x, y, width, height change
     def on_focus(self): pass
     def on_blur(self): pass
+
+
+def _annotations(cls):
+    try:
+        return inspect.get_annotations(cls)
+    except Exception:
+        return cls.__dict__.get("__annotations__", {})
+
+
+def _collect_fields(cls):
+    """Work out a widget class's fields from its annotations (and its bases')."""
+    own = {}
+    for name, hint in _annotations(cls).items():
+        if name.startswith("_") or "ClassVar" in str(hint):
+            continue
+        value = cls.__dict__.get(name, _MISSING)
+        info = value if isinstance(value, _Field) else _Field(value, None, True, None)
+        own[name] = info
+        # Leave a plain default on the class, so `getattr(cls, name)` works and
+        # subclasses can override it by assignment
+        if info.default is not _MISSING:
+            setattr(cls, name, info.default)
+        elif name in cls.__dict__:
+            delattr(cls, name)
+    cls._own_fields = own
+    fields = {}
+    for klass in reversed(cls.__mro__):
+        fields.update(klass.__dict__.get("_own_fields", {}))
+    cls._fields = fields
+
+_collect_fields(Widget)
 
 
 def _call(callback, *args):
@@ -111,11 +240,10 @@ def _call(callback, *args):
 
 
 class Text(Widget):
-    """Text that wraps to fit. align is "left", "center" or "right"."""
-    def init(self):
-        self.text = ""
-        self.align = "left"
-        self.style = ""
+    """Text that wraps to fit."""
+    text: str = field(default="", kw_only=False)
+    align: Align = "left"
+    style: str = "" # escape code from style(), e.g. style(fg="red")
     def draw(self, c):
         pad = {"left": pad_right, "center": pad_center, "right": pad_left}[self.align]
         for i, line in enumerate(wrap(str(self.text), c.width)[:c.height]):
@@ -131,14 +259,14 @@ class Label(Text):
 
 
 class Button(Widget):
+    text: str = field(default="Button", kw_only=False)
+    callback: Optional[Callable[[], Any]] = field(default=None, alias="on_click")
     preferred_width = "5+"
     preferred_height = 1
     focusable = True
     def init(self):
-        self.text = "Button"
         self.hovered = False
-        self.callback = None
-    def on_click(self, callback):
+    def on_click(self, callback: Callable[[], Any]):
         self.callback = callback
     def on_input(self, input):
         if(input.type == "key"):
@@ -160,21 +288,21 @@ class Button(Widget):
 
 class TextInput(Widget):
     """A one-line text box. Click or Tab to it, then type."""
+    value: str = field(default="", kw_only=False)
+    placeholder: str = ""
+    submit_callback: Optional[Callable[[str], Any]] = field(default=None, alias="on_submit")
+    change_callback: Optional[Callable[[str], Any]] = field(default=None, alias="on_change")
     preferred_width = "5+"
     preferred_height = 1
     border = True
     focusable = True
     captures_text = True
     def init(self):
-        self.value = ""
-        self.placeholder = ""
         self.cursor = 0 # index in value
         self.scroll = 0 # first visible character, when the value is longer than the box
-        self.submit_callback = None
-        self.change_callback = None
-    def on_submit(self, callback): # called with the value when Enter is pressed
+    def on_submit(self, callback: Callable[[str], Any]): # called with the value when Enter is pressed
         self.submit_callback = callback
-    def on_change(self, callback): # called with the value after every edit
+    def on_change(self, callback: Callable[[str], Any]): # called with the value after every edit
         self.change_callback = callback
 
     def on_input(self, input):
@@ -223,10 +351,9 @@ class TextInput(Widget):
 
 
 class ProgressBar(Widget):
+    value: float = field(default=0.0, kw_only=False) # 0 to 1
+    show_percent: bool = True
     preferred_height = 1
-    def init(self):
-        self.value = 0.0 # 0 to 1
-        self.show_percent = True
     def draw(self, c):
         value = max(0.0, min(1.0, float(self.value)))
         label = f" {round(value * 100):>3}%" if self.show_percent else ""
@@ -239,14 +366,13 @@ class ProgressBar(Widget):
 
 
 class Checkbox(Widget):
+    text: str = field(default="", kw_only=False)
+    checked: bool = False
+    change_callback: Optional[Callable[[bool], Any]] = field(default=None, alias="on_change")
     preferred_width = "5+"
     preferred_height = 1
     focusable = True
-    def init(self):
-        self.text = ""
-        self.checked = False
-        self.change_callback = None
-    def on_change(self, callback): # called with True/False
+    def on_change(self, callback: Callable[[bool], Any]): # called with True/False
         self.change_callback = callback
     def toggle(self):
         self.checked = not self.checked
@@ -269,14 +395,14 @@ class Toggle(Checkbox):
 
 class Menu(Widget):
     """A list to pick from with the arrow keys and Enter, or a click."""
+    items: list = field(default_factory=list, kw_only=False)
+    selected: int = 0
+    select_callback: Optional[Callable[[int, Any], Any]] = field(default=None, alias="on_select")
     border = True
     focusable = True
     def init(self):
-        self.items = []
-        self.selected = 0
         self.scroll = 0
-        self.select_callback = None
-    def on_select(self, callback): # called with (index, item) on Enter or click
+    def on_select(self, callback: Callable[[int, Any], Any]): # called with (index, item) on Enter or click
         self.select_callback = callback
     def _choose(self):
         if(0 <= self.selected < len(self.items)):
@@ -313,10 +439,10 @@ class Menu(Widget):
 
 
 class Table(Widget):
+    columns: list = field(default_factory=list, kw_only=False) # header names
+    rows: list = field(default_factory=list)                   # lists of values
     border = True
     def init(self):
-        self.columns = [] # header names
-        self.rows = []    # lists of values
         self.scroll = 0
     def on_input(self, input):
         if(input.type == "mouse_scroll" and self.mouse_over()):
@@ -342,12 +468,12 @@ class Table(Widget):
 
 class Stdout(Widget):
     """Shows everything printed (and stderr, in red). Scroll with the mouse wheel."""
+    max_lines: int = 500
     border = True
     preferred_width = "10+"
     preferred_height = "3+"
     def init(self):
         self.lines = [["", ""]] # [text, style]
-        self.max_lines = 500
         self.scroll = 0 # wrapped lines up from the bottom
     def on_input(self, input):
         if(input.type in ("stdout", "stderr")):

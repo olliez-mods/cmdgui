@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 import _thread
 import atexit
 import signal
 import sys
 import threading
 import traceback
+from typing import Any, Callable, Optional
 from .shorts import *
 from .widgets import *
+from .widgets import W
 from .layout import parse_layout, place, LayoutError
 from . import inputs
 
@@ -25,14 +29,26 @@ def teardown():
 
 
 class View():
-    def __init__(self, layout:str = None, theme:dict = None, quit_key = "q"):
-        self.widgets = []
-        self.named = {} # name -> widget, for widgets from the layout
+    """A terminal GUI. Three ways to fill it, which can be mixed:
+
+        View("label[heading] \n stdout")                  # types in the layout
+        View("heading \n stdout", heading=Label("Hi"))    # widgets passed in
+
+        class UI(View):                                    # a subclass: typed in your editor
+            layout = "heading \n stdout"
+            heading = Label("Hi")
+    """
+    layout: Optional[str] = None # subclasses can set the layout here
+
+    def __init__(self, layout: Optional[str] = None, theme: Optional[dict] = None,
+                 quit_key: Optional[str] = "q", **widgets: Widget):
+        self.widgets: list[Widget] = []
+        self.named: dict[str, Widget] = {} # name -> widget, for widgets from the layout
         self.lock = threading.RLock() # reentrant, so widgets can call view methods while handling input
         self.running = False
         self.thread = None
         self.too_small = False
-        self.focused = None
+        self.focused: Optional[Widget] = None
         self.theme = {**DEFAULT_THEME, **(theme or {})}
         self.bindings = {} # key name -> function
         self.size = (0, 0)
@@ -48,24 +64,50 @@ class View():
         if quit_key:
             self.bindings[quit_key] = self.quit
 
+        # Widgets given as class attributes (copied, so each view gets its own) and keyword arguments
+        provided = {}
+        for klass in reversed(type(self).__mro__):
+            for name, value in vars(klass).items():
+                if isinstance(value, Widget):
+                    provided[name] = value.copy()
+        for name, value in widgets.items():
+            if not isinstance(value, Widget):
+                raise TypeError(f"View() got an unexpected argument '{name}' (widgets must be Widget instances)")
+            provided[name] = value
+
         # Parse before touching the terminal, so a layout mistake doesn't leave it in raw mode
-        self.layout = parse_layout(layout, types=WIDGET_TYPES) if layout else None
-        if self.layout:
-            for name, slot in self.layout.slots.items():
-                if name in self.__dict__ or hasattr(type(self), name):
+        self.layout = layout if layout is not None else type(self).layout
+        if provided and not self.layout:
+            raise LayoutError(f"widgets were given ({', '.join(provided)}) but there's no layout to put them in")
+        self.grid = parse_layout(self.layout, types=WIDGET_TYPES, names=provided) if self.layout else None
+        if self.grid:
+            unused = [name for name in provided if name not in self.grid.slots]
+            if unused:
+                raise LayoutError(f"widget{'s' if len(unused) > 1 else ''} {', '.join(unused)} "
+                                  f"{'are' if len(unused) > 1 else 'is'} not in the layout")
+            for name, slot in self.grid.slots.items():
+                attr = getattr(type(self), name, None)
+                if name in self.__dict__ or (attr is not None and not isinstance(attr, Widget)):
                     raise LayoutError(f"widget name '{name}' clashes with view.{name}, pick another name")
-                widget = WIDGET_TYPES[slot.type]()
+                widget = provided.get(name)
+                if widget is None:
+                    widget = WIDGET_TYPES[slot.type]()
+                elif slot.type is not None and not isinstance(widget, WIDGET_TYPES[slot.type]):
+                    raise LayoutError(f"the layout says '{name}' is a {slot.type}, "
+                                      f"but it was given a {type(widget).__name__}")
                 widget.name = name
                 widget.view = self
                 self.widgets.append(widget)
                 self.named[name] = widget
+            for name, widget in self.named.items():
+                self.__dict__[name] = widget # view.name finds this view's copy, not the class attribute
             self._place(0, 0) # checks the widgets' sizes are valid, before touching the terminal
 
         self._install_sigint()
-        setup()
         self.running = True
         atexit.register(self.stop)
         try:
+            setup()
             self.size = screen_size()
             self._render()
             self.thread = threading.Thread(target=self._input_loop, daemon=True)
@@ -74,8 +116,15 @@ class View():
             self.stop() # restore the terminal so the error is visible
             raise
 
-    def __getitem__(self, name):
+    def __getitem__(self, name: str) -> Widget:
         return self.named[name]
+
+    def get(self, name: str, kind: type[W]) -> W:
+        """A widget by name, typed for your editor: view.get("heading", Label)"""
+        widget = self.named[name]
+        if not isinstance(widget, kind):
+            raise TypeError(f"'{name}' is a {type(widget).__name__}, not a {kind.__name__}")
+        return widget
 
     def __getattr__(self, name):
         # Only called for attributes that don't exist, so view.start finds the widget "start"
@@ -93,7 +142,7 @@ class View():
 
     # --- Widgets ---
 
-    def add(self, widget):
+    def add(self, widget: W) -> W:
         """Add a widget outside the layout. Set its x, y, width, height yourself."""
         with self.lock:
             widget.view = self
@@ -101,20 +150,20 @@ class View():
         widget.refresh()
         return widget
 
-    def refresh(self):
+    def refresh(self) -> None:
         """Redraw everything on the next frame."""
         for widget in self.widgets:
             widget._dirty = True
         self._wake()
 
-    def relayout(self):
+    def relayout(self) -> None:
         """Work out the layout again, e.g. after a widget's preferred size changed."""
         self._relayout = True
         self._wake()
 
     # --- Focus and keys ---
 
-    def focus(self, widget):
+    def focus(self, widget: Optional[Widget]) -> None:
         """Give a widget keyboard focus (None to remove focus)."""
         with self.lock:
             old = self.focused
@@ -129,7 +178,7 @@ class View():
                 widget.on_focus()
         self._wake()
 
-    def focus_next(self, step=1):
+    def focus_next(self, step: int = 1) -> None:
         """Move focus to the next (or previous, step=-1) focusable widget."""
         with self.lock:
             focusable = [w for w in self.widgets if w.focusable]
@@ -140,7 +189,7 @@ class View():
                 index = 0 if step > 0 else -1
             self.focus(focusable[index])
 
-    def on_key(self, key, callback):
+    def on_key(self, key: str, callback: Optional[Callable[[], Any]]) -> None:
         """Call callback() when key is pressed, e.g. view.on_key("ctrl+s", save).
         Pass None to remove a binding."""
         if callback: self.bindings[key] = callback
@@ -148,7 +197,7 @@ class View():
 
     # --- Lifetime ---
 
-    def wait(self):
+    def wait(self) -> None:
         """Block until the view is closed (quit key, view.quit(), or Ctrl+C)."""
         self._waiting = True
         try:
@@ -162,7 +211,7 @@ class View():
         if self._exit_code:
             raise SystemExit(self._exit_code)
 
-    def quit(self):
+    def quit(self) -> None:
         """Close the view. If the main program isn't in view.wait(), it's
         interrupted like Ctrl+C so the program ends."""
         interrupt = not self._waiting and threading.current_thread() is not threading.main_thread()
@@ -171,7 +220,7 @@ class View():
             self._quitting = True
             _thread.interrupt_main() # runs our SIGINT handler in the main thread, which exits cleanly
 
-    def stop(self):
+    def stop(self) -> None:
         """Close the view and put the terminal back to normal."""
         if self.running:
             self.running = False
@@ -201,13 +250,13 @@ class View():
         signal.signal(signal.SIGINT, handler)
 
     def _has_border(self, name):
-        slot_border = self.layout.slots[name].border
+        slot_border = self.grid.slots[name].border
         return self.named[name].border if slot_border is None else slot_border
 
     def _place(self, width, height):
         sizes = {name: (w.preferred_width, w.preferred_height) for name, w in self.named.items()}
         borders = {name: self._has_border(name) for name in self.named}
-        return place(self.layout, width, height, sizes, borders)
+        return place(self.grid, width, height, sizes, borders)
 
     def _input_loop(self):
         while self.running:
@@ -290,7 +339,7 @@ class View():
         write(clear_screen())
         width, height = self.size
         self._base = Canvas(width, height)
-        if self.layout:
+        if self.grid:
             placement = self._place(width, height)
             if not placement.fits:
                 self.too_small = True

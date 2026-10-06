@@ -1,36 +1,34 @@
-from cmdgui import View
+from cmdgui import View, Label, TextInput, Button, Toggle, Menu, Table, ProgressBar, Checkbox
 import time
 
 # Tab / Shift+Tab or click to move focus, q to quit (unless typing in the text box)
-view = View("""
-    label[heading]     -                  -
-    text_input[name]   button[greet]      toggle[fast]
-    menu[fruit]        table[scores]      -
-    |                  stdout[log]        -
-    progress_bar[bar]  -                  checkbox[done]
-""")
 
-view.heading.text = "cmdgui widget demo  ·  Tab to move  ·  q to quit"
-view.heading.align = "center"
+def greet():
+    print(f"Hello, {view.name.value or 'stranger'}! 👋")
 
-view.name.placeholder = "your name"
-view.name.title = "name"
-view.name.on_submit(lambda value: print(f"submitted {value!r}"))
-view.greet.text = "Greet"
-view.greet.on_click(lambda: print(f"Hello, {view.name.value or 'stranger'}! 👋"))
+class Demo(View):
+    layout = """
+        heading  -       -
+        name     greet   fast
+        fruit    scores  -
+        |        stdout  -
+        bar      -       done
+    """
+    heading = Label("cmdgui widget demo  ·  Tab to move  ·  q to quit", align="center")
+    name = TextInput(placeholder="your name", title="name",
+                     on_submit=lambda value: print(f"submitted {value!r}"))
+    greet = Button("Greet", on_click=greet)
+    fast = Toggle("fast", on_change=lambda on: print("fast mode", "on" if on else "off"))
+    fruit = Menu(["apple", "banana", "cherry", "dragonfruit", "elderberry", "fig", "grape"],
+                 on_select=lambda i, item: print(f"picked {item}"))
+    scores = Table(["name", "score", "city"], rows=[
+        ["Ada", 98, "London"], ["Linus", 87, "Helsinki"], ["Grace", 91, "New York"],
+        ["Guido", 85, "Haarlem"], ["Margaret", 99, "Boston"],
+    ])
+    bar = ProgressBar()
+    done = Checkbox("done", on_change=lambda checked: print("done:", checked))
 
-view.fast.text = "fast"
-view.fast.on_change(lambda on: print("fast mode", "on" if on else "off"))
-view.done.text = "done"
-view.done.on_change(lambda checked: print("done:", checked))
-
-view.fruit.items = ["apple", "banana", "cherry", "dragonfruit", "elderberry", "fig", "grape"]
-view.fruit.on_select(lambda i, item: print(f"picked {item}"))
-
-view.scores.columns = ["name", "score", "city"]
-view.scores.rows = [["Ada", 98, "London"], ["Linus", 87, "Helsinki"], ["Grace", 91, "New York"],
-                    ["Guido", 85, "Haarlem"], ["Margaret", 99, "Boston"]]
-
+view = Demo()
 view.on_key("ctrl+r", lambda: print("ctrl+r pressed"))
 
 # The main program keeps running, the view handles itself

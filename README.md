@@ -29,25 +29,52 @@ pip install cmdgui
 ## Quick start
 
 ```python
-from cmdgui import View
+from cmdgui import View, Button, Stdout
 import time
 
-view = View("""
-    button[start]  button[pause]  .
-    stdout[log]    -              -
-""")
+class App(View):
+    layout = """
+        start  pause  .
+        log    -      -
+    """
+    start = Button("Start", on_click=lambda: print("started"))
+    pause = Button("Pause", on_click=lambda: print("paused"))
+    log = Stdout()
 
-view.start.text = "Start"
-view.start.on_click(lambda: print("started"))
-view.pause.text = "Pause"
-view.pause.on_click(lambda: print("paused"))
+view = App()
 
 for i in range(100):
     print(f"tick {i}")   # shows up in the log box
     time.sleep(0.5)
 ```
 
-Press `q` to quit (or Ctrl+C).
+Press `q` to quit (or Ctrl+C). Because the widgets are class attributes, your
+editor knows `view.start` is a `Button` — autocomplete and type checking work.
+
+### Three ways to build a view
+
+They can be mixed freely:
+
+```python
+from cmdgui import View, Label
+
+# 1. A subclass: everything in one place, fully typed in your editor
+class App(View):
+    layout = "heading \n stdout"
+    heading = Label("Hello", align="center")
+view = App()
+
+# 2. Widgets passed in: quick one-off views
+view = View("heading \n stdout", heading=Label("Hello", align="center"))
+
+# 3. Types in the layout, configured afterwards
+view = View("label[heading] \n stdout")
+view.heading.set(text="Hello", align="center")
+```
+
+A keyword argument overrides a subclass's widget of the same name. Each view made
+from a subclass gets its own copies of the widgets. For typed access to widgets
+declared in the layout string, use `view.get("heading", Label)`.
 
 ## Layouts
 
@@ -56,7 +83,8 @@ Each word is a grid cell. Write `type[name]` to create a widget:
 | Token | Meaning |
 |---|---|
 | `button[start]` | a `button` widget named `start` |
-| `stdout` | a widget whose name is its type |
+| `heading` | the widget you passed in (or declared on the class) as `heading` |
+| `stdout` | otherwise: a widget whose name is its type |
 | `start` | the existing widget `start` again — it spans into this cell |
 | `-` | same as the cell to the left |
 | `\|` | same as the cell above |
@@ -88,8 +116,14 @@ The focused widget's border is highlighted.
 | `table` | `Table` | `columns`, `rows`. Scroll with the mouse wheel |
 | `stdout` | `Stdout` | Everything printed, stderr in red. Scroll with the mouse wheel |
 
-Setting an attribute redraws the widget: `view.bar.value = 0.5` just works.
-If you change a list in place (`view.menu.items.append(...)`), call `widget.refresh()`.
+Every widget also takes `border`, `title`, `preferred_width` and `preferred_height`.
+The first positional argument is the main content: `Label("text")`, `Menu(items)`,
+`Table(columns)`, `ProgressBar(0.5)`. Callbacks can be passed in (`on_click=`) or set
+later (`button.on_click(fn)`).
+
+Setting an attribute redraws the widget: `view.bar.value = 0.5` just works, and
+`widget.set(text=..., align=...)` changes several at once. If you change a list in
+place (`view.menu.items.append(...)`), call `widget.refresh()`.
 
 ## Keys and focus
 
@@ -115,14 +149,18 @@ to normal first, so the traceback is visible.
 ## Your own widgets
 
 ```python
-from cmdgui import Widget, View
+from cmdgui import Widget, View, field
 
 class Clock(Widget):
+    time: str = field(default="", kw_only=False)  # fields become constructor arguments
+    show_seconds: bool = True
+    history: list = field(default_factory=list)   # a fresh list for each clock
+
     preferred_height = 1          # 5, "5+" (at least), "5-10" (between), or None
     border = True
 
-    def init(self):
-        self.time = ""
+    def init(self):               # other setup (not constructor arguments)
+        self.ticks = 0
 
     def draw(self, c):            # c is a Canvas exactly the widget's size
         c.text(0, 0, self.time)
@@ -131,7 +169,11 @@ class Clock(Widget):
         pass
 
 view = View("clock")              # registered automatically as "clock"
+view = View("now", now=Clock("12:00"))
 ```
+
+Annotated attributes are fields: keyword arguments by default, positional with
+`field(kw_only=False)`. Editors autocomplete and type-check them like a dataclass.
 
 `Canvas` has `put`, `text`, `fill` and `border`; `self.mouse_pos()` and
 `self.mouse_over()` give the mouse relative to the widget; `self.theme("key")`
