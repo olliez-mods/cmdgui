@@ -1,5 +1,6 @@
 import os
 import sys
+import unicodedata
 
 ESC = "\x1b["
 RESET = ESC + "0m"
@@ -52,11 +53,14 @@ def write(s):
 
 # --- Styling ----------------------------------------------------------------
 
-def style(fg=None, bg=None, bold=False, underline=False):
+def style(fg=None, bg=None, bold=False, dim=False, italic=False, underline=False, reverse=False):
     """Escape code for a style. Colors are names from COLORS, prefixed 'bright_' for bright."""
     codes = []
     if bold: codes.append("1")
+    if dim: codes.append("2")
+    if italic: codes.append("3")
     if underline: codes.append("4")
+    if reverse: codes.append("7")
     if fg: codes.append(str(_color_code(fg, 30)))
     if bg: codes.append(str(_color_code(bg, 40)))
     return f"{ESC}{';'.join(codes)}m" if codes else ""
@@ -70,24 +74,51 @@ def _color_code(name, base):
     if name.startswith("bright_"): return COLORS[name[7:]] + base + 60
     return COLORS[name] + base
 
+# --- Text width -------------------------------------------------------------
+# Emoji and CJK characters take two columns, combining accents take none.
+
+def char_width(char):
+    if unicodedata.combining(char) or char in "\u200b\u200d\ufe0f":
+        return 0
+    if unicodedata.east_asian_width(char) in ("W", "F"):
+        return 2
+    return 1
+
+def text_width(text):
+    """How many columns text takes on screen."""
+    return sum(char_width(c) for c in text)
+
+def take(text, width):
+    """The longest start of text that fits in width columns."""
+    used = 0
+    for i, char in enumerate(text):
+        used += char_width(char)
+        if used > width:
+            return text[:i]
+    return text
+
 # --- Padding / fitting ------------------------------------------------------
 
 def pad_left(text, width, char=" "):
     """Right-align text in width (padding goes on the left)."""
-    return fit(text, width).rjust(width, char)
+    text = fit(text, width)
+    return char * (width - text_width(text)) + text
 
 def pad_right(text, width, char=" "):
     """Left-align text in width (padding goes on the right)."""
-    return fit(text, width).ljust(width, char)
+    text = fit(text, width)
+    return text + char * (width - text_width(text))
 
 def pad_center(text, width, char=" "):
-    return fit(text, width).center(width, char)
+    text = fit(text, width)
+    space = width - text_width(text)
+    return char * (space // 2) + text + char * (space - space // 2)
 
 def fit(text, width, ellipsis="…"):
     """Crop text to width, ending with an ellipsis if it was cut."""
-    if len(text) <= width: return text
-    if width <= len(ellipsis): return text[:width]
-    return text[:width - len(ellipsis)] + ellipsis
+    if text_width(text) <= width: return text
+    if width <= len(ellipsis): return take(text, width)
+    return take(text, width - len(ellipsis)) + ellipsis
 
 def wrap(text, width):
     """Word-wrap text into a list of lines no longer than width."""
@@ -96,15 +127,16 @@ def wrap(text, width):
     for paragraph in text.split("\n"):
         line = ""
         for word in paragraph.split(" "):
-            while len(word) > width:  # hard-break words longer than a line
+            while text_width(word) > width:  # hard-break words longer than a line
                 if line:
                     lines.append(line)
                     line = ""
-                lines.append(word[:width])
-                word = word[width:]
+                part = take(word, width) or word[0]
+                lines.append(part)
+                word = word[len(part):]
             if not line:
                 line = word
-            elif len(line) + 1 + len(word) <= width: 
+            elif text_width(line) + 1 + text_width(word) <= width:
                 line += " " + word
             else:
                 lines.append(line)
@@ -116,7 +148,9 @@ def wrap(text, width):
 
 class Canvas:
     """An off-screen grid of characters. Draw into it, then send it to the
-    terminal with a single write via draw_to()."""
+    terminal with a single write via draw_to().
+
+    A wide character takes two cells: the character, then "" in the next one."""
 
     def __init__(self, width, height, fill=" "):
         self.width = width
@@ -125,15 +159,36 @@ class Canvas:
         self.styles = [[""] * width for _ in range(height)]
 
     def put(self, x, y, char, style=""):
-        """Set one cell. Anything outside the canvas is ignored."""
-        if 0 <= x < self.width and 0 <= y < self.height:
-            self.chars[y][x] = char
-            self.styles[y][x] = style
+        """Set one cell. Anything outside the canvas is ignored.
+        Returns how many columns the character took."""
+        width = char_width(char)
+        if width == 0 or not (0 <= x < self.width and 0 <= y < self.height):
+            return width
+        if width == 2 and x + 1 >= self.width:
+            char, width = " ", 1  # no room for the second half
+        self._clear_wide(x, y)
+        self.chars[y][x] = char
+        self.styles[y][x] = style
+        if width == 2:
+            self._clear_wide(x + 1, y)
+            self.chars[y][x + 1] = ""
+            self.styles[y][x + 1] = style
+        return width
+
+    def _clear_wide(self, x, y):
+        """Before overwriting a cell, blank out the other half of any wide character in it."""
+        row = self.chars[y]
+        if row[x] == "" and x > 0:
+            row[x - 1] = " "
+        elif x + 1 < self.width and row[x + 1] == "":
+            row[x + 1] = " "
 
     def text(self, x, y, text, style=""):
-        """Write a string starting at (x, y), clipped at the canvas edge."""
-        for i, char in enumerate(text):
-            self.put(x + i, y, char, style)
+        """Write a string starting at (x, y), clipped at the canvas edge.
+        Returns the x just after the text."""
+        for char in text:
+            x += self.put(x, y, char, style)
+        return x
 
     def fill(self, x=0, y=0, w=None, h=None, char=" ", style=""):
         """Fill a rectangle (the whole canvas by default)."""
@@ -164,21 +219,82 @@ class Canvas:
         if title and w > 4:
             self.text(x + 2, y, fit(f" {title} ", w - 4), style)
 
+    def copy(self):
+        c = Canvas(0, 0)
+        c.width, c.height = self.width, self.height
+        c.chars = [row[:] for row in self.chars]
+        c.styles = [row[:] for row in self.styles]
+        return c
+
+    def blit(self, other, x, y):
+        """Copy another canvas onto this one with its top-left at (x, y), clipped."""
+        for row in range(other.height):
+            ty = y + row
+            if not 0 <= ty < self.height:
+                continue
+            for col in range(other.width):
+                tx = x + col
+                if 0 <= tx < self.width:
+                    self.chars[ty][tx] = other.chars[row][col]
+                    self.styles[ty][tx] = other.styles[row][col]
+            # Don't leave half a wide character at the clipped edges
+            if 0 <= x < self.width and self.chars[ty][x] == "":
+                self.chars[ty][x] = " "
+            end = x + other.width
+            if 0 <= end < self.width and self.chars[ty][end] == "" and self.chars[ty][end - 1] != "" \
+                    and char_width(self.chars[ty][end - 1]) != 2:
+                self.chars[ty][end] = " "
+
+    def _run(self, row, start, end):
+        """Escape string for cells start..end of a row, style codes only where they change."""
+        out = []
+        current = ""
+        for col in range(start, end + 1):
+            char = self.chars[row][col]
+            if char == "":
+                continue  # second half of a wide character
+            s = self.styles[row][col]
+            if s != current:
+                out.append(RESET + s)
+                current = s
+            out.append(char)
+        if current:
+            out.append(RESET)
+        return "".join(out)
+
     def render(self, x, y):
         """Build the escape string that draws this canvas with its top-left at
         (x, y): one cursor move per line, style codes only where they change."""
+        return "".join(move(x, y + row) + self._run(row, 0, self.width - 1) for row in range(self.height))
+
+    def diff(self, old):
+        """Escape string that turns old (what's on screen) into this canvas,
+        touching only the cells that changed. old=None draws everything."""
+        if old is None or (old.width, old.height) != (self.width, self.height):
+            return self.render(0, 0)
         out = []
-        for row in range(self.height):
-            out.append(move(x, y + row))
-            current = ""
-            for col in range(self.width):
-                s = self.styles[row][col]
-                if s != current:
-                    out.append(RESET + s)
-                    current = s
-                out.append(self.chars[row][col])
-            if current:
-                out.append(RESET)
+        for y in range(self.height):
+            new_chars, new_styles = self.chars[y], self.styles[y]
+            old_chars, old_styles = old.chars[y], old.styles[y]
+            x = 0
+            while x < self.width:
+                if new_chars[x] == old_chars[x] and new_styles[x] == old_styles[x]:
+                    x += 1
+                    continue
+                start = x - 1 if new_chars[x] == "" and x > 0 else x
+                end, gap = x, 0
+                x += 1
+                # Keep going through small unchanged gaps, cheaper than another cursor move
+                while x < self.width and gap <= 3:
+                    if new_chars[x] == old_chars[x] and new_styles[x] == old_styles[x]:
+                        gap += 1
+                    else:
+                        gap, end = 0, x
+                    x += 1
+                if end + 1 < self.width and new_chars[end + 1] == "":
+                    end += 1
+                out.append(move(start, y) + self._run(y, start, end))
+                x = end + 1
         return "".join(out)
 
     def draw_to(self, x, y):
