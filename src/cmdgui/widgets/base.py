@@ -67,6 +67,14 @@ DEFAULT_THEME = {
     "slider": style(fg="cyan"),
     "slider_empty": style(fg="bright_black"),
     "slider_focus": style(fg="cyan", bold=True, reverse=True),
+    "divider_hover": style(fg="yellow", bold=True), # a Split's divider under the mouse, or being dragged
+    "today": style(bold=True, underline=True), # today's date in a Calendar
+    "log_debug": style(fg="bright_black"),     # the level names in a Log
+    "log_info": style(fg="cyan"),
+    "log_warning": style(fg="yellow", bold=True),
+    "log_error": style(fg="red", bold=True),
+    "log_critical": style(fg="white", bg="red", bold=True),
+    "match": style(fg="black", bg="yellow"),   # text matching a Log's search
 }
 
 # Changing these means the layout has to be worked out again
@@ -260,6 +268,12 @@ class Widget(_FieldWidget):
         ({key: rectangle}, {(x, y): directions to leave out}). The frame by default;
         Tabs draws a box around the active tab instead."""
         return {self: frame}, {}
+
+    def _border_marks(self) -> dict:
+        """Changes to the border lines once they're drawn: {(x, y): (char, style)} in
+        screen cells. char replaces a plain straight line there (None keeps it); junctions
+        are kept, and only restyled. Split uses it to show its divider can be dragged."""
+        return {}
 
     def _child_key(self, key) -> bool:
         """A key pressed while a widget inside this one is focused. Return True

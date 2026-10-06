@@ -24,7 +24,7 @@ class Options(Panel):
 class Settings(Tabs):
     profile = Profile()
     options = Options(title="Options")   # the title is what the tab bar shows
-    log = Panel(Stdout())                # still collects prints while hidden
+    log = Stdout()                       # a single widget is a tab too; still collects prints while hidden
 
 class App(View):
     layout = """

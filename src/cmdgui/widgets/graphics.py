@@ -28,6 +28,7 @@ class Graphics(Widget, Raster):
     For animation, view.every(1/30, graphics.repaint)."""
     mode: Mode = "half"
     background: Optional[Color] = None # shown where nothing is drawn; None is the terminal's own
+    fix_aspect: bool = True # circles stay round and text keeps its shape in quad and sextant modes
     paint_callback: Optional[Callable[["Graphics"], Any]] = field(default=None, alias="on_paint")
     click_callback: Optional[Callable[[int, int], Any]] = field(default=None, alias="on_click")
     drag_callback: Optional[Callable[[int, int], Any]] = field(default=None, alias="on_drag")
@@ -45,6 +46,8 @@ class Graphics(Widget, Raster):
                 value = check_color(value)
             elif key == "mode" and value not in SCALES:
                 raise ValueError(f"unknown mode {value!r}: use {', '.join(map(repr, SCALES))}")
+            elif key == "fix_aspect" and self.__dict__.get("_ready"):
+                self._repaint = True # on_paint draws with the new setting
             super().__setattr__(key, value)
 
     def on_paint(self, callback: Optional[Callable[["Graphics"], Any]]):
@@ -71,8 +74,9 @@ class Graphics(Widget, Raster):
     @property
     def pixel_aspect(self) -> float:
         """How many times taller than wide a pixel is (a cell is about twice as tall
-        as it is wide): 2 for quad, 1.33 for sextant, 1 for the others. For a round
-        circle in any mode: ellipse(x, y, r, r / g.pixel_aspect, color)."""
+        as it is wide): 2 for quad, 1.33 for sextant, 1 for the others. fix_aspect
+        uses it for round shapes; divide by it yourself for positions, e.g. a point
+        r pixels below the centre of a circle is at cy + r / g.pixel_aspect."""
         sx, sy = SCALES[self.mode]
         return 2 * sx / sy
 

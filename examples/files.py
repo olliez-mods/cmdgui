@@ -1,8 +1,10 @@
-from cmdgui import View, Tree, Text
+from cmdgui import View, Split, Tree, Text
 import os
 
 # A file browser: folders load their contents when you first open them.
-# Arrows to move (right opens, left closes), Enter or click to pick, q to quit
+# Arrows to move (right opens, left closes), Enter or click to pick, q to quit.
+# Drag the line between the files and the preview to resize them (or Tab to it and
+# use left/right).
 
 def folder(path):
     def load():
@@ -19,19 +21,23 @@ root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 def show(path):
     full = os.path.join(root, *path)
     if os.path.isdir(full):
-        view.preview.text = f"{full}\n\n{len(os.listdir(full))} items"
+        view.browser.preview.text = f"{full}\n\n{len(os.listdir(full))} items"
         return
     try:
         with open(full, encoding="utf-8") as f:
-            view.preview.text = f.read(4000)
+            view.browser.preview.text = f.read(4000)
     except (OSError, UnicodeDecodeError) as e:
-        view.preview.text = f"Can't show this file: {e}"
+        view.browser.preview.text = f"Can't show this file: {e}"
 
-class Browser(View):
-    layout = "files  preview  -"
+class Browser(Split):
+    position = 0.3   # the files get 30% of the width; dragging keeps it a fraction
     files = Tree(folder(root), title=os.path.basename(root), on_select=show)
     preview = Text("Pick a file", border=True)
 
-view = Browser()
-view.focus(view.files)
+class App(View):
+    layout = "browser"
+    browser = Browser()
+
+view = App()
+view.focus(view.browser.files)
 view.wait()

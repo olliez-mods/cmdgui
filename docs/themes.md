@@ -20,12 +20,12 @@ view = View("...", theme={
 | `title` | border titles | bold |
 | `text` | `Text` and `Label` | plain |
 | `dim` | placeholders, hints | bright black |
-| `error` | stderr in `Stdout` | red |
+| `error` | stderr in `Stdout`, error messages in `Log` | red |
 | `button` | buttons | plain |
 | `button_hover` | a button or select under the mouse | reversed |
 | `button_focus` | a focused button, select, checkbox or radio option | cyan, bold |
 | `cursor` | the cursor in text boxes | reversed |
-| `selected` | the selected item in a focused menu or tree | black on cyan |
+| `selected` | the selected item in a focused menu or tree, the chosen day in a calendar | black on cyan |
 | `selected_unfocused` | the same, when not focused | reversed |
 | `hover` | the menu item or tab under the mouse | on bright black |
 | `progress`, `progress_empty` | the two parts of a progress bar | green, bright black |
@@ -35,6 +35,10 @@ view = View("...", theme={
 | `tab` | a tab on a `Tabs` bar | plain |
 | `tab_active` | the shown tab's name (on a borderless `Tabs` with the bar focused, `selected` is used) | bold |
 | `on`, `off` | a toggle's switch | black on green, reversed bright black |
+| `divider_hover` | a `Split`'s divider under the mouse, or being dragged | bold yellow |
+| `today` | today's date in a `Calendar` | bold, underlined |
+| `log_debug`, `log_info`, `log_warning`, `log_error`, `log_critical` | the level names in a `Log` | bright black, cyan, bold yellow, bold red, bold white on red |
+| `match` | text matching a `Log`'s search | black on yellow |
 | `disabled` | replaces every style in a disabled widget | bright black |
 
 The defaults are in `DEFAULT_THEME`. Your own widgets can add keys and read them with

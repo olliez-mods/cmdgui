@@ -874,13 +874,20 @@ class View(Group):
                     gaps[cell] = gaps.get(cell, 0) | directions
                 if shapes.get(key) != frame:
                     titles[key] = None # it draws something else in place of its frame
-                elif (group is layer and isinstance(layer, Popup)) or key.name in getattr(group, "_unnamed", ()):
+                elif (group is layer and isinstance(layer, Popup)) or key.name in getattr(group, "_unnamed", ()) \
+                        or key._panels(): # a container's edge is its panels' too, and their titles go there
                     titles[key] = key.title
                 else:
                     titles[key] = key.title or key.name
         popup = layer if isinstance(layer, Popup) else None
         focused = self.focused if self.focused is not None and self.focused._popup is popup else None
         _draw_borders(canvas, frames, titles, focused, self.theme, gaps)
+        for group in self._layer_groups(layer):
+            for widget in group.widgets:
+                for (x, y), (char, s) in widget._border_marks().items():
+                    if not (0 <= x < canvas.width and 0 <= y < canvas.height): continue
+                    if char and canvas.chars[y][x] in ("│", "─"): canvas.chars[y][x] = char
+                    canvas.styles[y][x] = s
 
     def _draw_too_small(self, need_w, need_h):
         width, height = self.size

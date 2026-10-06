@@ -11,13 +11,17 @@
 | `toggle` | [`Toggle`](#checkbox-and-toggle) | An on/off switch |
 | `radio_group` | [`RadioGroup`](#radiogroup) | Pick one of several options |
 | `select` | [`Select`](#select) | A dropdown: pick one option from a list that opens |
+| `calendar` | [`Calendar`](#calendar-and-datepicker) | A month to pick a day from |
+| `date_picker` | [`DatePicker`](#calendar-and-datepicker) | A date that opens a calendar to change it |
 | `slider` | [`Slider`](#slider) | Pick a number by dragging |
 | `progress_bar` | [`ProgressBar`](#progressbar) | A bar from 0 to 1 |
 | `menu` | [`Menu`](#menu) | A list to pick from |
 | `tree` | [`Tree`](#tree) | Nested items that fold open |
 | `table` | [`Table`](#table) | Rows and columns |
 | `tabs` | [`Tabs`](#tabs) | Several panels in one place, with a bar to switch between them |
+| `split` | [`Split`](#split) | Two panels with a divider to drag between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
+| `log` | [`Log`](#log) | Log messages with levels in colour, filtering and search |
 | `graphics` | [`Graphics`](#graphics) | Draw in pixels: lines, shapes, curves |
 
 ## Common to every widget
@@ -149,6 +153,38 @@ option), `placeholder` (shown when nothing is chosen), `on_change(fn(index, opti
 `select(index)`, `open()` and `close()` do those from code, and `is_open` says whether
 the list is showing.
 
+## Calendar and DatePicker
+
+```python
+from datetime import date
+
+Calendar(date(2026, 10, 6), on_select=lambda day: print("picked", day))
+DatePicker(placeholder="due date", format="%d %b %Y", min_date=date.today(),
+           on_change=lambda day: print("due", day))
+```
+
+A `Calendar` shows a month to pick a day from. Click a day, or focus it and move with the
+arrow keys (a day left and right, a week up and down), Page Up/Down for the month before
+or after, and Home/End for the start or end of the month. Enter (or a click) calls
+`on_select`. To see another month without changing the day, click the `‹` `›` either side
+of its name, or scroll.
+
+A `DatePicker` is one line, like a [`Select`](#select): it shows the date, and opens a
+calendar below it when clicked (or with Enter or Space while focused). Up/down change it
+by a day without opening it.
+
+- `value`: the chosen `date`, or `None` (a `datetime` works too, and is turned into its
+  date). Set it, or call `choose(day)` to also call `on_change`.
+- `min_date`, `max_date`: days outside these are greyed out and can't be chosen.
+- `first_weekday`: `0` for weeks starting on Monday (the default), `6` for Sunday.
+- `on_change(fn(date))`: the chosen day changed (by the arrow keys too, in a calendar).
+- `Calendar`: `on_select(fn(date))` on Enter or a click, `month` (the shown
+  `(year, month)`), `show_month(year, month)`. Today is underlined.
+- `DatePicker`: `format` (for `strftime`, `"%Y-%m-%d"` by default), `placeholder`,
+  `open()`, `close()`.
+
+See `examples/dates.py`.
+
 ## Slider
 
 ```python
@@ -265,8 +301,9 @@ string and widgets as class attributes, or `Panel(layout, name=widget, ...)`. A 
 with one widget doesn't need a layout: `Panel(Stdout())`. Each panel is one tab.
 
 A `Tabs` holds panels, as class attributes of a subclass (each `Tabs` gets its own
-copies) or passed in: `Tabs(profile=Profile(), log=Panel(Stdout()))`. The tab bar
-shows each panel's `title`, or its name.
+copies) or passed in: `Tabs(profile=Profile(), log=Stdout())`. A tab with a single
+widget doesn't need a panel: `log = Stdout()`, and then `view.settings.log` is the
+widget. The tab bar shows each panel's `title`, or its name.
 
 - Switch by clicking a tab, with left/right (and Home/End) while the bar is focused,
   or with **Ctrl+Page Up / Ctrl+Page Down** from any widget inside the tabs.
@@ -296,6 +333,74 @@ shows each panel's `title`, or its name.
 Tabs can go inside panels (tabs within tabs) and inside popups. See
 `examples/tabs.py`.
 
+## Split
+
+```python
+from cmdgui import View, Panel, Split, Tree, TextArea, Label
+
+class Files(Panel):
+    layout = "tree \n info"
+    tree = Tree({"src": ["main.py"]})
+    info = Label()
+
+class Editor(Split):
+    position = 24        # the files panel is 24 wide
+    files = Files()
+    text = TextArea()    # a single widget doesn't need a panel
+
+class App(View):
+    layout = "editor"
+    editor = Editor()
+
+view = App()
+view.editor.files.tree    # a widget in the first panel
+view.editor.text          # the second panel's widget
+```
+
+Two panels side by side, with a line between them to drag with the mouse. Or Tab to the
+split and move the line with the arrow keys, and Home/End to the smallest or largest it
+can go. `vertical=True` puts the first panel above the second.
+
+The line has a short heavy grip in its middle (`┃`, or `━` when stacked) to show it can
+be moved. Under the mouse, and while it's dragged, the whole line lights up
+(`divider_hover` in the theme); while the split is focused, the grip does.
+
+Each side is a [`Panel`](#tabs) or a single widget, as class attributes of a subclass,
+passed by name (`Split(files=Files(), log=Log())`), or passed in order
+(`Split(Menu(items), Stdout())`). `split.first` and `split.second` are the two panels.
+A widget given by name has that name as its border title, as in a view's layout.
+
+`position` is how much room the first panel gets:
+
+| `position` | |
+|---|---|
+| `0.3` (a float) | that fraction of the room; `0.5` by default |
+| `30` (an int) | 30 cells |
+| `-30` (a negative int) | the second panel gets 30 cells, and the first the rest |
+
+Whatever kind you pick stays the same as the terminal resizes, and when the line is
+dragged: a fraction stays a fraction. `on_change(fn(position))` is called when the user
+moves it. The line stops where either panel would get smaller than its widgets need.
+
+With a border (the default), the panels share it and the line between them, so
+bordered widgets inside join up with it, as in tabs. Splits can go inside splits (and
+tabs, and popups):
+
+```python
+class Logs(Split):
+    vertical = True
+    position = -6        # prints get 6 rows at the bottom
+    log = Log()
+    prints = Stdout()
+
+class Main(Split):
+    position = 24
+    controls = Controls()
+    logs = Logs()
+```
+
+See `examples/log_viewer.py`.
+
 ## Stdout
 
 ```python
@@ -317,6 +422,49 @@ the bottom and follows new output again.
 
 Anything written to stderr, like a traceback, is printed again after the view closes,
 so errors aren't lost.
+
+## Log
+
+```python
+log = Log(level="info")
+log.info("server started on port", 8080)
+log.warning("disk 91% full")
+log.add("custom", level="error", time=some_datetime)
+
+logging.getLogger().addHandler(log.handler())   # Python's logging goes here too
+```
+
+Log messages, newest at the bottom, each with its time and level:
+
+```
+16:19:24 INFO  request from user 430 served
+16:19:25 WARN  job 251 is slow, took 2.4s
+16:19:25 ERROR couldn't reach the database for job 596
+```
+
+The levels are `"debug"`, `"info"`, `"warning"`, `"error"` and `"critical"`, the same as
+Python's `logging` (whose level numbers work too). Each level has its colour from the
+theme (`log_debug` and so on); error and critical messages are red.
+
+- `debug()`, `info()`, `warning()`, `error()`, `critical()`: add a message, joining the
+  values like `print()` does. `add(*values, level="info", time=None)` takes the level, and
+  a `datetime` or timestamp for the time.
+- `level`: hide messages less important than this, e.g. `log.level = "warning"`.
+- `search`: show only the messages containing this text (ignoring case), with the
+  matches highlighted. Pair it with a `TextInput`:
+  `TextInput(on_change=lambda text: log.set(search=text))`.
+- `handler(level=...)`: a `logging.Handler` that sends records here. It shows just the
+  message (and the traceback, for `logger.exception()`); give it a formatter for more,
+  like `handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))`.
+- `show_time`, `time_format` (`"%H:%M:%S"`), `max_entries` (1000, the oldest go first).
+- `clear()`, `count(level=None)`, `entries` (every message kept, as
+  `(datetime, level, message)`).
+
+Scrolling works like [`Stdout`](#stdout): the mouse wheel, or the arrow keys, Page
+Up/Down and Home while focused. While scrolled up, new messages don't move what you're
+reading; End goes back to the bottom. Long messages wrap, lined up after the level.
+
+Adding messages is safe from any thread. See `examples/log_viewer.py`.
 
 ## Graphics
 
@@ -354,17 +502,21 @@ terminal's own background if that's `None` too).
 |---|---|
 | `pixel(x, y, color)`, `get(x, y)` | set or read one pixel |
 | `clear(color=None)` | every pixel |
-| `line(x0, y0, x1, y1, color)` | |
-| `polyline(points, color, closed=False)` | lines joining the points |
-| `rect(x, y, width, height, color, fill=False)` | |
-| `circle(x, y, radius, color, fill=False)` | |
-| `ellipse(x, y, rx, ry, color, fill=False)` | |
-| `arc(x, y, radius, start, end, color)` | angles in degrees, 0 is right, clockwise |
-| `bezier(points, color)` | 3 points for a quadratic curve, 4 for cubic, or more |
-| `polygon(points, color, fill=False)` | filled with the even-odd rule, so a self-crossing star has a hole |
+| `line(x0, y0, x1, y1, color, thickness=1)` | |
+| `polyline(points, color, closed=False, thickness=1)` | lines joining the points |
+| `rect(x, y, width, height, color, fill=False, thickness=1)` | a thick outline goes inwards |
+| `circle(x, y, radius, color, fill=False, thickness=1)` | |
+| `ellipse(x, y, rx, ry, color, fill=False, thickness=1)` | |
+| `arc(x, y, radius, start, end, color, thickness=1)` | angles in degrees, 0 is right, clockwise |
+| `bezier(points, color, thickness=1)` | 3 points for a quadratic curve, 4 for cubic, or more |
+| `polygon(points, color, fill=False, thickness=1)` | filled with the even-odd rule, so a self-crossing star has a hole |
 | `image(rows, x=0, y=0)` | copy in rows of colors; `None` is see-through |
-| `text(x, y, text, color, scale=1, fix_aspect=True)` | write in a 3×5 pixel font, its top-left at (x, y) |
-| `text_size(text, scale=1, fix_aspect=True)` | how many pixels (wide, tall) `text()` would take |
+| `text(x, y, text, color, scale=1, fix_aspect=None)` | write in a 3×5 pixel font, its top-left at (x, y) |
+| `text_size(text, scale=1, fix_aspect=None)` | how many pixels (wide, tall) `text()` would take |
+
+`thickness` is in pixels: `line(0, 0, 40, 20, "red", thickness=3)` is 3 pixels wide, with
+round ends. Thick lines and outlines are centred on the line, except a rectangle's, which
+stays inside it.
 
 ### Text
 
@@ -373,9 +525,10 @@ you draw. It has capitals only (lowercase is drawn as capitals), and draws chara
 doesn't know as `?`. `scale=2` draws each font pixel as 2×2.
 
 In quad and sextant modes pixels are taller than they're wide, which would make letters
-tall and thin, so `text()` widens them to keep their shape. Pass `fix_aspect=False` to
+tall and thin, so `text()` widens them to keep their shape (see
+[round shapes](#round-shapes-in-quad-and-sextant-modes)). Pass `fix_aspect=False` to
 draw the font pixel for pixel instead (to both `text()` and `text_size()`, so they
-agree). Centre text with `text_size()`:
+agree); `None` follows the widget's setting. Centre text with `text_size()`:
 
 ```python
 width, height = g.text_size("GAME OVER", 2)
@@ -415,9 +568,21 @@ top-left pixel of the cell; `mouse_pixel()` does the same at any time.
 
 ### Round shapes in quad and sextant modes
 
-Quad pixels are twice as tall as they're wide, so `circle()` comes out tall and thin
-(sextant pixels a little). `pixel_aspect` is 2 in quad mode, 1.33 in sextant and 1 in
-the others; for a round circle in every mode, use
-`ellipse(x, y, r, r / g.pixel_aspect, color)`.
+Quad pixels are twice as tall as they're wide (sextant ones a third taller), so drawn
+pixel for pixel, a circle would come out tall and thin. With `fix_aspect=True` (the
+default), round things are corrected to look right in every mode:
+
+- `circle()` and `arc()` are round, `radius` pixels across from the centre.
+- `ellipse()`'s `ry` is measured like `rx`, so `ellipse(x, y, 20, 10, ...)` is twice as
+  wide as tall on screen.
+- Thick lines are as thick going across as going down.
+- `text()` widens letters to keep their shape.
+
+Positions aren't changed: `(x, y)` is always a pixel, and lines, rectangles, polygons and
+curves go through exactly the points you give. `pixel_aspect` is how many times taller
+than wide a pixel is (2 in quad mode, 1.33 in sextant, 1 in the others), for working out
+positions yourself: a point `r` below the centre of a circle is at `cy + r / g.pixel_aspect`.
+
+`Graphics(fix_aspect=False)` turns it off, so every size is in pixels as drawn.
 
 See `examples/graphics.py` for an animation and a sketch pad.

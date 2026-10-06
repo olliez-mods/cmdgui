@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 from ..shorts import *
-from .base import Widget, field, _call, _groups
+from .base import field, _call, _groups
+from .container import Container
 
 # Switch tabs from anywhere inside a Tabs widget
 SWITCH_KEYS = {"ctrl+page_up": -1, "ctrl+page_down": 1}
 
 
-class Tabs(Widget):
+class Tabs(Container):
     """Several panels in one place, with a bar of tab names to switch between them.
 
         class General(Panel):
@@ -27,8 +28,9 @@ class Tabs(Widget):
         view.settings.general.name.value   # typed in your editor
         view.settings.show("advanced")
 
-    Or pass the panels in: Tabs(general=General(), advanced=Advanced()). A tab's name
-    on the bar is the panel's title, or its attribute name.
+    Or pass the panels in: Tabs(general=General(), advanced=Advanced()). A tab can be
+    a single widget instead of a panel: log = Stdout(). A tab's name on the bar is the
+    panel's title, or its attribute name.
     Switch with a click on the bar, left/right while the bar is focused, or
     Ctrl+Page Up / Ctrl+Page Down from anywhere inside.
 
@@ -43,32 +45,14 @@ class Tabs(Widget):
     border = True
     focusable = True
 
+    panel_kind = "tab"
+
     def __init__(self, *args, **kwargs):
-        from ..view import Panel # here, because view.py imports the widgets
-        panels = {}
-        for klass in reversed(type(self).__mro__):
-            for name, value in vars(klass).items():
-                if isinstance(value, Panel):
-                    panels[name] = value.copy() # each Tabs gets its own copies
-        for name in [name for name, value in kwargs.items() if isinstance(value, Panel)]:
-            panels[name] = kwargs.pop(name)
-        object.__setattr__(self, "panels", {})
-        self._add_panels(panels)
         super().__init__(*args, **kwargs)
-        if not self.panels:
-            raise ValueError(f"{type(self).__name__} needs at least one panel")
         if self.current is None:
             object.__setattr__(self, "current", next(iter(self.panels)))
         elif self.current not in self.panels:
             raise ValueError(f"no tab named '{self.current}' (tabs: {', '.join(self.panels)})")
-
-    def _add_panels(self, panels):
-        for name, panel in panels.items():
-            if hasattr(Tabs, name): # a method or setting, like show or current
-                raise ValueError(f"tab name '{name}' clashes with {type(self).__name__}.{name}, pick another name")
-            panel._container = self
-            self.panels[name] = panel
-            self.__dict__[name] = panel # tabs.general finds this widget's copy, not the class attribute
 
     def init(self):
         self.hovered = None # name of the tab under the mouse
@@ -80,8 +64,6 @@ class Tabs(Widget):
 
     def copy(self):
         new = super().copy()
-        object.__setattr__(new, "panels", {})
-        new._add_panels({name: panel.copy() for name, panel in self.panels.items()})
         new._focus_memory = {}
         return new
 
@@ -115,9 +97,6 @@ class Tabs(Widget):
         self.show(names[(names.index(self.current) + step) % len(names)])
 
     # --- Container ---
-    def _panels(self):
-        return list(self.panels.values())
-
     def _visible_panels(self):
         return [self.panel]
 

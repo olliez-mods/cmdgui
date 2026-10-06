@@ -5,6 +5,7 @@ import time
 # Pixel graphics. The big picture is drawn by on_paint 30 times a second; switch its
 # mode on the left to compare resolutions, and click it to make ripples.
 # Sextant needs a newer terminal, and octant a very new font: boxes mean no support.
+# Press a to turn fix_aspect off and on: off, circles go tall and thin in quad mode.
 # The sketch pad keeps what you draw: drag in it, press c to clear. q to quit.
 
 START = time.monotonic()
@@ -18,16 +19,18 @@ PLANETS = [   # (orbit, size, speed, color), sizes as fractions of the picture
 def paint(g: Graphics):
     t = time.monotonic() - START
     w, h = g.pixel_width, g.pixel_height
-    aspect = g.pixel_aspect  # quad pixels are twice as tall as wide: squash vertically to stay round
+    # Quad pixels are twice as tall as wide. Circles stay round by themselves (fix_aspect),
+    # but positions are in pixels: a point r below the centre is r / aspect pixels down
+    aspect = g.pixel_aspect if g.fix_aspect else 1
     cx, cy = w / 2, h / 2
     size = min(w, h * aspect)
 
-    g.ellipse(cx, cy, size * 0.12, size * 0.12 / aspect, "gold", fill=True)
+    g.circle(cx, cy, size * 0.12, "gold", fill=True)
     for orbit, radius, speed, color in PLANETS:
         r = size * orbit
-        g.ellipse(cx, cy, r, r / aspect, "dark_gray")
+        g.circle(cx, cy, r, "dark_gray")
         x, y = cx + r * math.cos(t * speed), cy + r * math.sin(t * speed) / aspect
-        g.ellipse(x, y, max(1, size * radius), max(1, size * radius) / aspect, color, fill=True)
+        g.circle(x, y, max(1, size * radius), color, fill=True)
 
     # A spinning star in the corner: one polygon, so its middle is a hole (even-odd fill)
     sx, sy, sr = size * 0.12 + 2, size * 0.12 / aspect + 2, size * 0.11
@@ -37,7 +40,7 @@ def paint(g: Graphics):
 
     # A wave along the bottom
     swing = h * 0.25 * math.sin(t * 2)
-    g.bezier([(0, h - 3), (w / 3, h - 3 - swing), (2 * w / 3, h - 3 + swing), (w - 1, h - 3)], "aqua")
+    g.bezier([(0, h - 3), (w / 3, h - 3 - swing), (2 * w / 3, h - 3 + swing), (w - 1, h - 3)], "aqua", thickness=3)
 
     for ripple in ripples[:]:
         x, y, made = ripple
@@ -45,7 +48,7 @@ def paint(g: Graphics):
         if r > size * 0.5:
             ripples.remove(ripple)
             continue
-        g.ellipse(x * w, y * h, r, r / aspect, "white" if r < size * 0.25 else "gray")
+        g.circle(x * w, y * h, r, "white" if r < size * 0.25 else "gray", thickness=2)
 
     # Text in the pixel font, centred along the top, and a clock in the corner
     title = g.mode.upper()
@@ -53,7 +56,7 @@ def paint(g: Graphics):
     g.text((w - g.text_size(title, scale)[0]) / 2, 2, title, "white", scale)
     g.text(2, h - 9, time.strftime("%H:%M:%S"), "light_gray")
 
-    g.view.info.text = f"{w}x{h} pixels in {g.width}x{g.height} cells"
+    g.view.info.text = f"{w}x{h} pixels in {g.width}x{g.height} cells, fix_aspect {'on' if g.fix_aspect else 'off'}"
 
 def ripple(x, y):
     g = view.scene
@@ -68,7 +71,7 @@ def pen_down(x, y):
     view.sketch.pixel(x, y, COLORS[pen["color"]])
 
 def pen_move(x, y):
-    view.sketch.line(*pen["at"], x, y, COLORS[pen["color"]])
+    view.sketch.line(*pen["at"], x, y, COLORS[pen["color"]], thickness=2)
     pen["at"] = (x, y)
 
 class Demo(View):
@@ -85,6 +88,7 @@ class Demo(View):
 
 view = Demo()
 view.on_key("c", view.sketch.clear)
+view.on_key("a", lambda: view.scene.set(fix_aspect=not view.scene.fix_aspect))
 view.every(1 / 30, view.scene.repaint)
 view.focus(view.mode)
 view.wait()

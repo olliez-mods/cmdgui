@@ -121,3 +121,12 @@ theme doesn't have.
 - `self.x`, `self.y`, `self.width`, `self.height`: where it is on screen
 - `self.refresh()`: redraw on the next frame, from any thread
 - `self.copy()`: a separate copy, not attached to any view
+
+## Widgets that hold other widgets
+
+`Tabs` and `Split` are built on `Container` (from `cmdgui.widgets`), which collects panels
+from class attributes, keyword arguments and, optionally, positional arguments, wraps
+single widgets in panels, and copies them per instance. A subclass sets how many panels
+it takes (`panel_count = (2, 2)`) and places them by overriding the container methods on
+`Widget`: `_visible_panels()`, `_arrange_children()`, `_needed_size()` and `_draw_area()`.
+These aren't a stable interface yet; read `widgets/split.py` for a complete example.
