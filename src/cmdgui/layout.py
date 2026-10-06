@@ -204,8 +204,9 @@ def _size_tracks(total, count, lines, items):
     for i, ranges in enumerate(single):
         if ranges:
             mins[i] = max(low for low, _ in ranges)
-            highs = [high for _, high in ranges]
-            maxs[i] = None if None in highs else max(max(highs), mins[i])
+            # A widget with a size limit limits its track; flexible neighbours adapt
+            highs = [high for _, high in ranges if high is not None]
+            maxs[i] = max(min(highs), mins[i]) if highs else None
 
     # Spanning widgets: if their tracks are too small together, grow one of them
     for start, span, low, high in items:

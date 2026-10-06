@@ -542,6 +542,10 @@ class View(Group):
     def _wake(self):
         inputs.wake()
 
+    def _redraw_borders(self):
+        self._redraw_base = True
+        self._wake()
+
     def _install_sigint(self):
         """Signal handlers can only be set from the main thread, so set one up now
         that the quit key can trigger later: it ends the program with exit code 0.

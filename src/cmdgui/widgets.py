@@ -63,7 +63,9 @@ DEFAULT_THEME = {
 }
 
 # Changing these means the layout has to be worked out again
-LAYOUT_ATTRS = {"preferred_width", "preferred_height", "border", "title"}
+LAYOUT_ATTRS = {"preferred_width", "preferred_height", "border"}
+# Changing these means the borders have to be drawn again
+BORDER_ATTRS = {"title"}
 # Set by the view, so changing them shouldn't trigger a redraw
 POSITION_ATTRS = {"x", "y", "width", "height", "name", "view"}
 
@@ -147,6 +149,8 @@ class Widget(_FieldWidget):
             object.__setattr__(self, "_ready", True)
         if self.view and any(key in LAYOUT_ATTRS for key in kwargs):
             self.view.relayout()
+        elif self.view and any(key in BORDER_ATTRS for key in kwargs):
+            self.view._redraw_borders()
         self.refresh()
         return self
 
@@ -171,6 +175,8 @@ class Widget(_FieldWidget):
                 return
             if key in LAYOUT_ATTRS:
                 if self.view: self.view.relayout()
+            elif key in BORDER_ATTRS:
+                if self.view: self.view._redraw_borders()
             else:
                 self.refresh()
 
@@ -257,7 +263,7 @@ class Text(Widget):
             c.text(0, i, pad(line, c.width), self.style or self.theme("text"))
     def content_size(self):
         lines = str(self.text).split("\n")
-        width = min(60, max(text_width(line) for line in lines))
+        width = min(80, max(text_width(line) for line in lines))
         return width, max(1, len(wrap(str(self.text), width)))
 
 
@@ -403,7 +409,7 @@ class Checkbox(Widget):
         s = self.theme("button_focus") if self.focused else ""
         c.text(0, c.height // 2, fit(("[x] " if self.checked else "[ ] ") + self.text, c.width), s)
     def content_size(self):
-        return text_width(self.text) + 4, 1
+        return text_width(self.text) + 5, 1 # one space after, so neighbours don't touch
 
 
 class Toggle(Checkbox):
@@ -413,7 +419,7 @@ class Toggle(Checkbox):
         x = c.text(0, mid, " ON  " if self.checked else " OFF ", self.theme("on" if self.checked else "off"))
         c.text(x + 1, mid, fit(self.text, c.width - x - 1), self.theme("button_focus") if self.focused else "")
     def content_size(self):
-        return text_width(self.text) + 6, 1
+        return text_width(self.text) + 7, 1
 
 
 class Menu(Widget):
