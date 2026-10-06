@@ -12,10 +12,12 @@ from typing import Any, Callable, Optional, TypeVar, Union
 from .shorts import *
 from .widgets import *
 from .widgets import W
+from .widgets.base import _containers
 from .layout import parse_layout, parse_size, place, LayoutError
 from . import inputs
 
 P = TypeVar("P", bound="Popup")
+G = TypeVar("G", bound="Panel")
 
 # With keep_typing, these keys go to the popup instead of the focused text box
 POPUP_KEYS = {"up", "down", "page_up", "page_down", "enter"}
@@ -35,10 +37,11 @@ def teardown():
         sys.stderr.flush()
 
 
-def _draw_borders(canvas, frames, titles, focused, theme):
+def _draw_borders(canvas, frames, titles, focused, theme, gaps=None):
     """Draw every border at once, so shared edges are one line and meeting
     lines get the right junction (├ ┬ ┼ ...). The focused frame is drawn in
-    the focus colour. titles: frame name -> title (or None)."""
+    the focus colour. titles: frame key -> title (or None). gaps: (x, y) ->
+    directions to leave out there, e.g. the opening under an active tab."""
     links = {} # (x, y) -> directions that cell connects to
     def link(x, y, direction):
         links[(x, y)] = links.get((x, y), 0) | direction
@@ -52,6 +55,10 @@ def _draw_borders(canvas, frames, titles, focused, theme):
             for cx in (x, right):
                 link(cx, cy, DOWN)
                 link(cx, cy + 1, UP)
+    for cell, directions in (gaps or {}).items():
+        if cell in links:
+            links[cell] &= ~directions
+            if not links[cell]: del links[cell]
     for (x, y), directions in links.items():
         canvas.put(x, y, LINE_CHARS[directions], theme["border"])
 
@@ -118,7 +125,7 @@ class Group():
         the terminal, so a mistake doesn't leave it in raw mode."""
         self.widgets: list[Widget] = []
         self.named: dict[str, Widget] = {} # name -> widget, for widgets from the layout
-        self.frames: dict[Any, tuple[int, int, int, int]] = {} # name -> border rectangle
+        self.frames: dict[Any, tuple[int, int, int, int]] = {} # widget (or the group itself) -> border rectangle
 
         # Class attributes (copied, so each instance gets its own) and keyword arguments
         provided: dict[str, Any] = {}
@@ -127,6 +134,8 @@ class Group():
                 if isinstance(value, (Widget, Popup)):
                     provided[name] = value.copy()
         for name, value in widgets.items():
+            if isinstance(value, Panel) and not isinstance(value, Popup):
+                raise TypeError(f"{type(self).__name__}() got a panel '{name}': panels go inside a Tabs widget")
             if not isinstance(value, (Widget, Popup)):
                 raise TypeError(f"{type(self).__name__}() got an unexpected argument '{name}' "
                                 f"(widgets must be Widget instances)")
@@ -155,6 +164,7 @@ class Group():
                 raise LayoutError(f"the layout says '{name}' is a {slot.type}, "
                                   f"but it was given a {type(widget).__name__}")
             widget.name = name
+            widget._group = self
             self.widgets.append(widget)
             self.named[name] = widget
         for name, widget in self.named.items():
@@ -188,17 +198,109 @@ class Group():
         fit_content: grow widgets to their content_size(); outer: leave room for a border around it all."""
         sizes, borders = {}, {}
         for name, widget in self.named.items():
-            if fit_content:
-                content_w, content_h = widget.content_size()
-                sizes[name] = (_spec(widget.preferred_width, content_w), _spec(widget.preferred_height, content_h))
-            else:
-                sizes[name] = (widget.preferred_width, widget.preferred_height)
             slot_border = self.grid.slots[name].border
             borders[name] = widget.border if slot_border is None else slot_border
+            need_w, need_h = widget._needed_size(fit_content, borders[name]) # containers: what their panels need
+            if fit_content:
+                content_w, content_h = widget.content_size()
+                content_w = content_w if need_w is None else need_w
+                content_h = content_h if need_h is None else need_h
+                sizes[name] = (_spec(widget.preferred_width, content_w), _spec(widget.preferred_height, content_h))
+            elif need_w is not None or need_h is not None:
+                sizes[name] = (_spec(widget.preferred_width, need_w), _spec(widget.preferred_height, need_h))
+            else:
+                sizes[name] = (widget.preferred_width, widget.preferred_height)
         return place(self.grid, width, height, sizes, borders, outer=outer)
 
 
-class Popup(Group):
+class Panel(Group):
+    """A layout of widgets that goes inside something else, like a tab of a Tabs widget:
+
+        class General(Panel):
+            layout = '''
+                name
+                save
+            '''
+            name = TextInput(placeholder="your name")
+            save = Button("Save")
+
+    Written just like a View subclass. A panel with one widget doesn't need a layout:
+    Panel(Menu(items)), or a subclass with a single widget attribute. Popup is a
+    panel that floats over the view."""
+    _kind = "panel"
+    border: bool = False         # draw a border around the whole panel (Tabs and Popup decide this themselves)
+    title: Optional[str] = None  # the tab's name in a Tabs, or the popup's border title
+
+    def __init__(self, layout: Union[str, Widget, None] = None, *,
+                 border: Optional[bool] = None, title: Optional[str] = None, **widgets: Widget):
+        if border is not None: self.border = border
+        if title is not None: self.title = title
+        self.x = self.y = self.w = self.h = 0 # on screen, including any border
+        self._container: Optional[Widget] = None # the Tabs (or other container) holding it
+        self._unnamed = set() # names made up here, not shown as border titles
+        if isinstance(layout, Widget):
+            widgets = {"content": layout, **widgets}
+            self._unnamed = {"content"}
+            layout = None
+        self._init_group(layout, widgets)
+        if not self.grid:
+            raise LayoutError(f"a {self._kind} needs a layout or at least one widget")
+        self.init()
+
+    def _default_layout(self, provided):
+        return next(iter(provided)) if len(provided) == 1 else None # a single widget fills the panel
+
+    def init(self) -> None:
+        """Override to wire up widgets, e.g. self.no.on_click(self.close)."""
+
+    def copy(self: G) -> G:
+        """A separate copy with its own widgets (init() runs again for it)."""
+        new = copy.copy(self)
+        new.__dict__.update(widgets=[], named={}, frames={}, _container=None, **self._copy_resets())
+        for name, widget in self.named.items():
+            widget = widget.copy()
+            widget.name = name
+            widget._group = new
+            new.widgets.append(widget)
+            new.named[name] = widget
+            new.__dict__[name] = widget
+        new.init()
+        return new
+
+    def _copy_resets(self) -> dict:
+        return {}
+
+    def _min_size(self, fit_content, outer):
+        """The smallest (width, height) the panel fits in."""
+        placement = self._place(0, 0, fit_content=fit_content, outer=outer)
+        return placement.min_width, placement.min_height
+
+    def _arrange(self, x, y, w, h, fit_content=False, outer=False):
+        """Place the widgets in the w x h box at (x, y). outer: the box's edge is a
+        border line (drawn as part of the panel), shared with the widgets' borders."""
+        placement = self._place(w, h, fit_content=fit_content, outer=outer)
+        inner = 1 if outer else 0
+        self.x, self.y, self.w, self.h = x, y, w, h
+        self.frames = {self.named[name]: (x + fx, y + fy, fw, fh) for name, (fx, fy, fw, fh) in placement.frames.items()}
+        if outer:
+            self.frames[self] = (x, y, w, h)
+        for name, (rx, ry, rw, rh) in placement.rects.items():
+            widget = self.named[name]
+            widget._framed = widget in self.frames
+            # Clip to the inside of the box, in case it's too small
+            rw = max(0, min(rw, w - inner - rx))
+            rh = max(0, min(rh, h - inner - ry))
+            if (widget.x, widget.y, widget.width, widget.height) != (x + rx, y + ry, rw, rh):
+                widget.x, widget.y, widget.width, widget.height = x + rx, y + ry, rw, rh
+                widget._dirty = True
+                widget._arrange_children()
+                widget.on_resize()
+
+    def _contains(self, x, y):
+        return self.x <= x < self.x + self.w and self.y <= y < self.y + self.h
+
+
+class Popup(Panel):
     """A box that floats over the view, with its own layout of widgets:
 
         class Confirm(Popup):
@@ -221,7 +323,6 @@ class Popup(Group):
     close_on_outside_click: bool = False
     keep_typing: bool = False             # the focused text box keeps getting typed text; arrows and Enter come here
     border: bool = True
-    title: Optional[str] = None
     width: Optional[int] = None           # outer size, including the border; None to fit the content
     height: Optional[int] = None
 
@@ -232,29 +333,14 @@ class Popup(Group):
                  width: Optional[int] = None, height: Optional[int] = None,
                  on_close: Optional[Callable[[], Any]] = None, **widgets: Widget):
         settings = dict(modal=modal, close_on_escape=close_on_escape, keep_typing=keep_typing,
-                        close_on_outside_click=close_on_outside_click, border=border,
-                        title=title, width=width, height=height)
+                        close_on_outside_click=close_on_outside_click, width=width, height=height)
         for key, value in settings.items():
             if value is not None: setattr(self, key, value)
         self.close_callback = on_close
         self.view: Optional[View] = None
-        self.x = self.y = self.w = self.h = 0 # on screen, including the border
         self._anchor: tuple[str, Any] = ("center", None)
         self._previous_focus: Optional[Widget] = None
-
-        if isinstance(layout, Widget):
-            widgets = {"content": layout, **widgets}
-            layout = None
-        self._init_group(layout, widgets)
-        if not self.grid:
-            raise LayoutError("a popup needs a layout or at least one widget")
-        self.init()
-
-    def _default_layout(self, provided):
-        return next(iter(provided)) if len(provided) == 1 else None # a single widget fills the popup
-
-    def init(self) -> None:
-        """Override to wire up widgets, e.g. self.no.on_click(self.close)."""
+        super().__init__(layout, border=border, title=title, **widgets)
 
     @property
     def is_open(self) -> bool:
@@ -268,21 +354,8 @@ class Popup(Group):
         """Close the popup (does nothing if it isn't open)."""
         if self.view: self.view._close(self)
 
-    def copy(self: P) -> P:
-        """A separate copy with its own widgets (init() runs again for it)."""
-        new = copy.copy(self)
-        new.__dict__.update(view=None, widgets=[], named={}, frames={}, _previous_focus=None)
-        for name, widget in self.named.items():
-            widget = widget.copy()
-            widget.name = name
-            new.widgets.append(widget)
-            new.named[name] = widget
-            new.__dict__[name] = widget
-        new.init()
-        return new
-
-    def _contains(self, x, y):
-        return self.x <= x < self.x + self.w and self.y <= y < self.y + self.h
+    def _copy_resets(self) -> dict:
+        return {"view": None, "_previous_focus": None}
 
 
 class View(Group):
@@ -323,7 +396,7 @@ class View(Group):
 
         # Before touching the terminal, so a layout mistake doesn't leave it in raw mode
         self._init_group(layout, widgets)
-        for widget in self.widgets:
+        for widget in self._walk(self.widgets, hidden=True):
             widget.view = self
         if self.grid:
             self._place(0, 0) # checks the widgets' sizes are valid, before touching the terminal
@@ -359,15 +432,18 @@ class View(Group):
     def add(self, widget: W) -> W:
         """Add a widget outside the layout. Set its x, y, width, height yourself."""
         with self.lock:
-            widget.view = self
             self.widgets.append(widget)
+            for w in self._walk([widget], hidden=True):
+                w.view = self
+            widget._arrange_children()
         widget.refresh()
         return widget
 
     def refresh(self) -> None:
         """Redraw everything on the next frame."""
-        for widget in self._all_widgets():
+        for widget in self._every_widget():
             widget._dirty = True
+        self._redraw_base = True
         self._wake()
 
     # --- Popups ---
@@ -386,7 +462,7 @@ class View(Group):
             else:
                 if popup.view: popup.view._close(popup)
                 popup.view = self
-                for widget in popup.widgets:
+                for widget in self._walk(popup.widgets, hidden=True):
                     widget.view = self
                     widget._popup = popup
                     widget._dirty = True
@@ -395,7 +471,7 @@ class View(Group):
                 self._redraw_base = True
                 popup._previous_focus = self.focused
                 if not popup.keep_typing:
-                    self.focus(next((w for w in popup.widgets if w.can_focus), None))
+                    self.focus(next((w for w in self._walk(popup.widgets) if w.can_focus), None))
         self._wake()
         return popup
 
@@ -413,7 +489,7 @@ class View(Group):
             if popup not in self.popups: return
             self.popups.remove(popup)
             focused_inside = self.focused is None or self.focused._popup is popup
-            for widget in popup.widgets:
+            for widget in self._walk(popup.widgets, hidden=True):
                 widget.view = None
                 widget._popup = None
             popup.view = None
@@ -427,14 +503,36 @@ class View(Group):
         self._wake()
         if popup.close_callback: popup.close_callback()
 
+    @staticmethod
+    def _walk(widgets, hidden=False):
+        """The widgets, each followed by the widgets in its shown panels (all its
+        panels if hidden=True), all the way down."""
+        for widget in widgets:
+            yield widget
+            for panel in (widget._panels() if hidden else widget._visible_panels()):
+                yield from View._walk(panel.widgets, hidden)
+
+    @staticmethod
+    def _layer_groups(group):
+        """A view or popup, and every shown panel inside it."""
+        yield group
+        for widget in View._walk(group.widgets):
+            yield from widget._visible_panels()
+
     def _all_widgets(self):
-        return self.widgets + [w for popup in self.popups for w in popup.widgets]
+        """Every widget being shown: the layout's, and the open popups'."""
+        return list(self._walk(self.widgets)) + [w for popup in self.popups for w in self._walk(popup.widgets)]
+
+    def _every_widget(self):
+        """Every widget, including ones in tabs that aren't shown."""
+        return list(self._walk(self.widgets, hidden=True)) + \
+               [w for popup in self.popups for w in self._walk(popup.widgets, hidden=True)]
 
     def _active_widgets(self):
         """Widgets that can get mouse input and focus: everything above the top modal popup."""
         for i in range(len(self.popups) - 1, -1, -1):
             if self.popups[i].modal:
-                return [w for popup in self.popups[i:] for w in popup.widgets]
+                return [w for popup in self.popups[i:] for w in self._walk(popup.widgets)]
         return self._all_widgets()
 
     def _layer_at(self, x, y):
@@ -446,8 +544,8 @@ class View(Group):
 
     def _box(self, widget):
         """A widget's rectangle including its border."""
-        frames = widget._popup.frames if widget._popup else self.frames
-        return frames.get(widget.name) or (widget.x, widget.y, widget.width, widget.height)
+        frames = widget._group.frames if widget._group is not None else self.frames
+        return frames.get(widget) or (widget.x, widget.y, widget.width, widget.height)
 
     def _place_popup(self, popup):
         """Size the popup to its content (or its width/height) and position it."""
@@ -470,21 +568,7 @@ class View(Group):
             x, y = (screen_w - w) // 2, (screen_h - h) // 2
         x, y = max(0, min(x, screen_w - w)), max(0, min(y, screen_h - h))
 
-        placement = popup._place(w, h, fit_content=True, outer=popup.border)
-        inner = 1 if popup.border else 0
-        popup.x, popup.y, popup.w, popup.h = x, y, w, h
-        popup.frames = {name: (x + fx, y + fy, fw, fh) for name, (fx, fy, fw, fh) in placement.frames.items()}
-        if popup.border:
-            popup.frames[None] = (x, y, w, h)
-        for name, (rx, ry, rw, rh) in placement.rects.items():
-            widget = popup.named[name]
-            # Clip to the inside of the popup, in case the screen is too small for it
-            rw = max(0, min(rw, w - inner - rx))
-            rh = max(0, min(rh, h - inner - ry))
-            if (widget.x, widget.y, widget.width, widget.height) != (x + rx, y + ry, rw, rh):
-                widget.x, widget.y, widget.width, widget.height = x + rx, y + ry, rw, rh
-                widget._dirty = True
-                widget.on_resize()
+        popup._arrange(x, y, w, h, fit_content=True, outer=popup.border)
 
     def relayout(self) -> None:
         """Work out the layout again, e.g. after a widget's preferred size changed."""
@@ -653,7 +737,7 @@ class View(Group):
                 top.close()
                 return
             if top and top.keep_typing and not char and key in POPUP_KEYS:
-                target = next((w for w in top.widgets if w.can_focus), None)
+                target = next((w for w in self._walk(top.widgets) if w.can_focus), None)
                 if target:
                     target.on_input(input) # e.g. arrows move through a menu while typing
                     return
@@ -663,6 +747,8 @@ class View(Group):
                 self.bindings[key]()
             elif key in ("tab", "shift_tab"):
                 self.focus_next(1 if key == "tab" else -1)
+            elif focused and any(c._child_key(key) for c in _containers(focused)):
+                pass # e.g. Ctrl+Page Down switched the tab the focused widget is in
             elif focused:
                 focused.on_input(input)
             return
@@ -686,7 +772,7 @@ class View(Group):
                 if widget.enabled: widget.on_input(input)
             return
 
-        for widget in self._all_widgets():
+        for widget in self._every_widget(): # printed text reaches hidden tabs too
             widget.on_input(input)
 
     def _render(self):
@@ -703,13 +789,14 @@ class View(Group):
                 self._draw_base()
                 changed = True
             for popup in self.popups:
-                if any(w._dirty for w in popup.widgets):
+                if any(w._dirty for w in self._walk(popup.widgets)):
                     old = (popup.x, popup.y, popup.w, popup.h)
                     self._place_popup(popup) # its content may want a different size now
                     if (popup.x, popup.y, popup.w, popup.h) != old: changed = True
             for widget in self._all_widgets():
                 if widget._dirty:
-                    canvas = Canvas(max(0, widget.width), max(0, widget.height))
+                    _, _, width, height = widget._draw_area()
+                    canvas = Canvas(max(0, width), max(0, height))
                     widget.draw(canvas)
                     if not widget.enabled: canvas.restyle(self.theme.get("disabled", ""))
                     widget._canvas = canvas
@@ -718,19 +805,21 @@ class View(Group):
             if not changed: return
 
             screen = self._base.copy()
-            for widget in self.widgets:
-                if widget._canvas: screen.blit(widget._canvas, widget.x, widget.y)
+            for widget in self._walk(self.widgets):
+                if widget._canvas: self._blit(screen, widget)
             for popup in self.popups:
                 screen.fill(popup.x, popup.y, popup.w, popup.h) # hide what's underneath
-                titles: dict[Any, Optional[str]] = {name: w.title for name, w in popup.named.items()}
-                titles[None] = popup.title
-                focused = self.focused.name if self.focused and self.focused._popup is popup else False
-                _draw_borders(screen, popup.frames, titles, focused, self.theme)
-                for widget in popup.widgets:
-                    if widget._canvas: screen.blit(widget._canvas, widget.x, widget.y)
+                self._draw_layer_borders(screen, popup)
+                for widget in self._walk(popup.widgets):
+                    if widget._canvas: self._blit(screen, widget)
             out = screen.diff(self._shown)
             self._shown = screen
             if out: write(render_frame(out))
+
+    @staticmethod
+    def _blit(screen, widget):
+        dx, dy, _, _ = widget._draw_area()
+        screen.blit(widget._canvas, widget.x + dx, widget.y + dy)
 
     def _apply_layout(self):
         """Give layout widgets their rectangles for the current screen size."""
@@ -746,15 +835,19 @@ class View(Group):
                 self.too_small = True
                 self._draw_too_small(placement.min_width, placement.min_height)
                 return
+            self.frames = {self.named[name]: rect for name, rect in placement.frames.items()}
             for name, (x, y, w, h) in placement.rects.items():
                 widget = self.named[name]
                 widget.x, widget.y, widget.width, widget.height = x, y, w, h
+                widget._framed = widget in self.frames
+                widget._arrange_children()
                 widget.on_resize()
-            self.frames = placement.frames
+        for widget in self.widgets:
+            if widget._group is None: widget._arrange_children() # added with view.add()
         for popup in self.popups:
             self._place_popup(popup)
         self._redraw_base = True
-        for widget in self._all_widgets():
+        for widget in self._every_widget():
             widget._dirty = True
 
     def _draw_base(self):
@@ -762,9 +855,32 @@ class View(Group):
         self._redraw_base = False
         width, height = self.size
         self._base = Canvas(width, height)
-        titles = {name: self.named[name].title or name for name in self.frames}
-        focused = self.focused.name if self.focused and self.focused._popup is None else None
-        _draw_borders(self._base, self.frames, titles, focused, self.theme)
+        self._draw_layer_borders(self._base, self)
+
+    def _draw_layer_borders(self, canvas, layer):
+        """Draw the borders of a view or popup and of the shown panels inside it, all
+        at once so lines that meet join up. Titles: a widget's title (or its name,
+        outside popups); a popup's title on its own border."""
+        frames, titles, gaps = {}, {}, {}
+        for group in self._layer_groups(layer):
+            for key, frame in group.frames.items():
+                if key is group:
+                    frames[key] = frame
+                    titles[key] = group.title if group is layer else None # a tab's name is on the tab bar
+                    continue
+                shapes, shape_gaps = key._border_shapes(frame) # usually just the frame itself
+                frames.update(shapes)
+                for cell, directions in shape_gaps.items():
+                    gaps[cell] = gaps.get(cell, 0) | directions
+                if shapes.get(key) != frame:
+                    titles[key] = None # it draws something else in place of its frame
+                elif (group is layer and isinstance(layer, Popup)) or key.name in getattr(group, "_unnamed", ()):
+                    titles[key] = key.title
+                else:
+                    titles[key] = key.title or key.name
+        popup = layer if isinstance(layer, Popup) else None
+        focused = self.focused if self.focused is not None and self.focused._popup is popup else None
+        _draw_borders(canvas, frames, titles, focused, self.theme, gaps)
 
     def _draw_too_small(self, need_w, need_h):
         width, height = self.size

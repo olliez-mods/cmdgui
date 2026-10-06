@@ -57,7 +57,7 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
   across cells, and borders between neighbours join up.
 - **Widgets**: text, labels, buttons, one-line and multi-line text boxes (with password
   mode and history), checkboxes, toggles, radio buttons, dropdowns, sliders, progress
-  bars, menus, folding trees, tables, and a box that shows everything you print.
+  bars, menus, folding trees, tables, tabs, and a box that shows everything you print.
 - **Popups**: dialogs, dropdowns and command menus that float over the layout.
 - **Mouse and keyboard**: clicks, dragging, the scroll wheel, Tab between widgets, and
   your own key bindings.
@@ -77,4 +77,4 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 - [Your own widgets](https://github.com/olliez-mods/cmdgui/blob/main/docs/custom-widgets.md)
 
 The [examples](https://github.com/olliez-mods/cmdgui/tree/main/examples) folder has a
-widget demo, a dashboard, popups, a console and a file browser.
+widget demo, a dashboard, popups, tabs, a console and a file browser.

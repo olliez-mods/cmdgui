@@ -16,6 +16,7 @@
 | `menu` | [`Menu`](#menu) | A list to pick from |
 | `tree` | [`Tree`](#tree) | Nested items that fold open |
 | `table` | [`Table`](#table) | Rows and columns |
+| `tabs` | [`Tabs`](#tabs) | Several panels in one place, with a bar to switch between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
 
 ## Common to every widget
@@ -228,6 +229,71 @@ Table(["name", "score"], rows=[["Ada", 98], ["Linus", 87]])
 `columns` (header names) and `rows` (lists of values). Columns shrink to fit.
 Scroll with the mouse wheel, or focus it (Tab or a click) and use up/down, Page Up/Down
 and Home/End.
+
+## Tabs
+
+```python
+from cmdgui import View, Panel, Tabs, TextInput, Button, Checkbox, Stdout, Label
+
+class Profile(Panel):
+    layout = """
+        name   email
+        save   .
+    """
+    name = TextInput(placeholder="your name")
+    email = TextInput(placeholder="you@example.com")
+    save = Button("Save")
+
+class Settings(Tabs):
+    profile = Profile()
+    options = Panel(Checkbox("debug mode"), title="Options")
+    log = Panel(Stdout())
+
+class App(View):
+    layout = "settings \n status"
+    settings = Settings(on_change=lambda name: print("now on", name))
+    status = Label("ready")
+
+view = App()
+view.settings.profile.name.value     # typed in your editor, through the class attributes
+view.settings.show("log")
+```
+
+A `Panel` is a layout of widgets, written exactly like a `View` subclass: a `layout`
+string and widgets as class attributes, or `Panel(layout, name=widget, ...)`. A panel
+with one widget doesn't need a layout: `Panel(Stdout())`. Each panel is one tab.
+
+A `Tabs` holds panels, as class attributes of a subclass (each `Tabs` gets its own
+copies) or passed in: `Tabs(profile=Profile(), log=Panel(Stdout()))`. The tab bar
+shows each panel's `title`, or its name.
+
+- Switch by clicking a tab, with left/right (and Home/End) while the bar is focused,
+  or with **Ctrl+Page Up / Ctrl+Page Down** from any widget inside the tabs.
+- `show(name)`, `current` (the shown tab's name), `panel` (the shown `Panel`),
+  `panels` (all of them by name), `on_change(fn(name))`.
+- `view.settings.profile` is a panel, and `view.settings.profile.name` a widget in it.
+- Hidden tabs keep everything: what you typed, scroll positions, and the widget you
+  were focused on, which gets focus back when you return. Printed text still reaches a
+  `Stdout` in a hidden tab.
+- Widgets in a hidden tab aren't drawn, don't get clicks or keys, and Tab skips them.
+- The `Tabs` widget asks for room for its largest tab, so switching tabs doesn't
+  move the rest of the layout around.
+- With a border (the default), the tabs sit above the content like a browser's: the
+  shown tab is in a box that opens into the content below, and the content's border is
+  shared with the widgets inside it. When the tab bar is focused, the box is highlighted.
+
+  ```
+  ┌─────────┐
+  │ profile │ Options   log
+  │         └────────────┬─ email ───────┐
+  │your name             │you@example.com│
+  ```
+
+  `border=False` (or `{nb}` in the layout) gives a plain row of tab names instead, with
+  no box or border.
+
+Tabs can go inside panels (tabs within tabs) and inside popups. See
+`examples/tabs.py`.
 
 ## Stdout
 

@@ -27,11 +27,13 @@ view = View("...", theme={
 | `cursor` | the cursor in text boxes | reversed |
 | `selected` | the selected item in a focused menu or tree | black on cyan |
 | `selected_unfocused` | the same, when not focused | reversed |
-| `hover` | the menu item under the mouse | on bright black |
+| `hover` | the menu item or tab under the mouse | on bright black |
 | `progress`, `progress_empty` | the two parts of a progress bar | green, bright black |
 | `slider`, `slider_empty` | the two parts of a slider | cyan, bright black |
 | `slider_focus` | the slider's handle while focused or dragged | cyan, bold, reversed |
 | `header` | table headers | bold, underlined |
+| `tab` | a tab on a `Tabs` bar | plain |
+| `tab_active` | the shown tab's name (on a borderless `Tabs` with the bar focused, `selected` is used) | bold |
 | `on`, `off` | a toggle's switch | black on green, reversed bright black |
 | `disabled` | replaces every style in a disabled widget | bright black |
 

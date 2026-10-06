@@ -56,6 +56,8 @@ DEFAULT_THEME = {
     "selected": style(fg="black", bg="cyan"),
     "selected_unfocused": style(reverse=True),
     "hover": style(bg="bright_black"),          # the menu item under the mouse
+    "tab": "",                                 # a tab on a Tabs bar
+    "tab_active": style(bold=True),            # the shown tab
     "progress": style(fg="green"),
     "progress_empty": style(fg="bright_black"),
     "header": style(bold=True, underline=True),
@@ -114,7 +116,9 @@ class Widget(_FieldWidget):
         self.height = 0
         self.name: Optional[str] = None # set by the view for layout widgets
         self.view: Any = None # the View showing this widget
-        self._popup: Any = None # the Popup this widget is in, if any
+        self._popup: Any = None # the Popup this widget is in, if any (even inside a tab of it)
+        self._group: Any = None # the View, Popup or Panel whose layout it's in
+        self._framed = False    # whether the layout gave it a border
         for name, info in type(self)._fields.items():
             value = info.default_factory() if info.default_factory else getattr(type(self), name, None)
             object.__setattr__(self, name, value)
@@ -168,7 +172,8 @@ class Widget(_FieldWidget):
         for key, value in vars(new).items():
             if isinstance(value, (list, dict, set)):
                 new.__dict__[key] = copy.copy(value)
-        new.__dict__.update(view=None, name=None, _popup=None, _canvas=None, _dirty=True)
+        new.__dict__.update(view=None, name=None, _popup=None, _group=None, _framed=False,
+                            _canvas=None, _dirty=True)
         return new
 
     if not TYPE_CHECKING:
@@ -224,6 +229,43 @@ class Widget(_FieldWidget):
         matter. Popups use it to size themselves."""
         return None, None
 
+    # --- Containers ---
+    # Widgets that hold panels of other widgets (like Tabs) override these. The
+    # view uses them to find, place and draw the widgets inside.
+
+    def _panels(self) -> list:
+        """Every panel inside this widget, shown or not."""
+        return []
+
+    def _visible_panels(self) -> list:
+        """The panels being shown: their widgets are drawn and get input."""
+        return []
+
+    def _arrange_children(self) -> None:
+        """Place the panels inside, after this widget's own rectangle is set."""
+
+    def _needed_size(self, fit_content, bordered):
+        """The smallest content (width, height) the panels inside need, or None
+        for either. fit_content: size the panels to their content (in popups)."""
+        return None, None
+
+    def _draw_area(self):
+        """The part of the widget it draws itself: (x, y, width, height) relative to
+        its top-left corner. Containers leave out the area their panels cover, so the
+        borders there show."""
+        return 0, 0, self.width, self.height
+
+    def _border_shapes(self, frame):
+        """What to draw for this widget's border, given the frame the layout made:
+        ({key: rectangle}, {(x, y): directions to leave out}). The frame by default;
+        Tabs draws a box around the active tab instead."""
+        return {self: frame}, {}
+
+    def _child_key(self, key) -> bool:
+        """A key pressed while a widget inside this one is focused. Return True
+        if it was used (e.g. Ctrl+Page Down to switch tabs)."""
+        return False
+
     # --- Override these ---
     def init(self): pass             # set up attributes; the size isn't known yet
     def draw(self, c: Canvas): pass  # draw into c, which is exactly width x height
@@ -262,6 +304,23 @@ def _collect_fields(cls):
     cls._fields = fields
 
 _collect_fields(Widget)
+
+
+def _groups(widget):
+    """The groups a widget is inside, innermost first: its panel, the panel the
+    Tabs holding that is in, and so on up to the view or popup."""
+    group = widget._group
+    while group is not None:
+        yield group
+        container = getattr(group, "_container", None)
+        group = container._group if container is not None else None
+
+
+def _containers(widget):
+    """The container widgets (like Tabs) a widget is inside, innermost first."""
+    for group in _groups(widget):
+        container = getattr(group, "_container", None)
+        if container is not None: yield container
 
 
 def _call(callback, *args):
