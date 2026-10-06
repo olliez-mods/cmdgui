@@ -13,6 +13,18 @@ BORDERS = {
     "ascii":   "++++-|",
 }
 
+# Line-drawing characters by which directions they connect, for borders that
+# meet and cross: bits are UP, DOWN, LEFT, RIGHT
+UP, DOWN, LEFT, RIGHT = 1, 2, 4, 8
+LINE_CHARS = {
+    LEFT: "─", RIGHT: "─", LEFT | RIGHT: "─",
+    UP: "│", DOWN: "│", UP | DOWN: "│",
+    DOWN | RIGHT: "┌", DOWN | LEFT: "┐", UP | RIGHT: "└", UP | LEFT: "┘",
+    UP | DOWN | RIGHT: "├", UP | DOWN | LEFT: "┤",
+    DOWN | LEFT | RIGHT: "┬", UP | LEFT | RIGHT: "┴",
+    UP | DOWN | LEFT | RIGHT: "┼",
+}
+
 COLORS = {
     "black": 0, "red": 1, "green": 2, "yellow": 3,
     "blue": 4, "magenta": 5, "cyan": 6, "white": 7,
@@ -79,6 +91,7 @@ def fit(text, width, ellipsis="…"):
 
 def wrap(text, width):
     """Word-wrap text into a list of lines no longer than width."""
+    if width <= 0: return []
     lines = []
     for paragraph in text.split("\n"):
         line = ""
