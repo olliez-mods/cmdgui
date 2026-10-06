@@ -109,12 +109,16 @@ The focused widget's border is highlighted.
 | `label` | `Label` | One line of text |
 | `button` | `Button` | `text`, `on_click(fn)`. Click, or Enter/Space when focused |
 | `text_input` | `TextInput` | `value`, `placeholder`, `on_submit(fn)`, `on_change(fn)` |
+| `text_area` | `TextArea` | Multi-line text box, long lines wrap. `value`, `placeholder`, `on_change(fn)` |
 | `progress_bar` | `ProgressBar` | `value` from 0 to 1 |
+| `slider` | `Slider` | `value`, `min`, `max`, `step`, `show_value`, `on_change(fn)`. Drag, click, or arrow keys |
 | `checkbox` | `Checkbox` | `text`, `checked`, `on_change(fn)` |
 | `toggle` | `Toggle` | An on/off switch, same API as `Checkbox` |
+| `radio_group` | `RadioGroup` | `options`, `selected`, `value`, `horizontal`, `on_change(fn(index, option))` |
 | `menu` | `Menu` | `items`, `selected`, `on_select(fn(index, item))` |
+| `tree` | `Tree` | Nested items that fold open. `nodes`, `selected` (a path of labels), `on_select(fn(path))`, `expand()`, `collapse()`, `expand_all()`. See below |
 | `table` | `Table` | `columns`, `rows`. Scroll with the mouse wheel |
-| `stdout` | `Stdout` | Everything printed, stderr in red. Scroll with the mouse wheel. `clear()` |
+| `stdout` | `Stdout` | Everything printed, stderr in red. Scroll with the mouse wheel. `clear()`, and `print(...)` / `write(text)` to show text in this box only |
 
 Every widget also takes `border`, `title`, `preferred_width` and `preferred_height`.
 The first positional argument is the main content: `Label("text")`, `Menu(items)`,
@@ -124,6 +128,27 @@ later (`button.on_click(fn)`).
 Setting an attribute redraws the widget: `view.bar.value = 0.5` just works, and
 `widget.set(text=..., align=...)` changes several at once. If you change a list in
 place (`view.menu.items.append(...)`), call `widget.refresh()`.
+
+### Trees
+
+`nodes` is a dict of label → children. Children are another dict, a list, `None` for
+a leaf, or a function that returns them, called the first time the node is opened:
+
+```python
+import os
+from cmdgui import Tree
+
+def folder(path):
+    return lambda: {name: folder(os.path.join(path, name)) if os.path.isdir(os.path.join(path, name)) else None
+                    for name in sorted(os.listdir(path))}
+
+files = Tree({"src": {"main.py": None, "util.py": None}, "docs": ["intro.md", "api.md"]})
+browser = Tree(folder("."), on_select=lambda path: print(os.path.join(*path)))
+```
+
+A node is picked out by its path, a tuple of labels like `("src", "main.py")`. Use the
+arrow keys (right opens, left closes or goes to the parent), Enter, or click. After the
+data behind a function node changes, call `tree.reload()`.
 
 ## Popups
 
@@ -246,3 +271,12 @@ view = View("...", theme={
 ```
 
 See `DEFAULT_THEME` in `cmdgui.widgets` for every key.
+
+Colors for `fg` and `bg` can be:
+
+- a basic color, which follows the terminal's theme: `black`, `red`, `green`, `yellow`,
+  `blue`, `magenta`, `cyan`, `white`, each also as `bright_red` and so on
+- one of 57 more named colors from the 256-color palette: `orange`, `gold`, `teal`,
+  `lavender`, `crimson`, `gray`... (see `EXTRA_COLORS` in `cmdgui.shorts`)
+- a 256-color palette number: `style(fg=208)`
+- an exact color, on terminals with true color: `style(fg="#ff8800")` or `style(fg=(255, 136, 0))`

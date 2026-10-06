@@ -1,6 +1,7 @@
 import os
 import sys
 import unicodedata
+from typing import Literal, Optional, Tuple, Union, get_args
 
 ESC = "\x1b["
 RESET = ESC + "0m"
@@ -26,10 +27,57 @@ LINE_CHARS = {
     UP | DOWN | LEFT | RIGHT: "┼",
 }
 
+# The basic colors (and 'bright_' versions) use the terminal's own palette, so
+# they match the user's theme
 COLORS = {
     "black": 0, "red": 1, "green": 2, "yellow": 3,
     "blue": 4, "magenta": 5, "cyan": 6, "white": 7,
 }
+
+# More colors, as numbers in the 256-color palette (supported by nearly every terminal).
+# "grey" works wherever "gray" does.
+EXTRA_COLORS = {
+    # reds and pinks
+    "dark_red": 88, "maroon": 52, "crimson": 161, "scarlet": 196, "coral": 203,
+    "salmon": 209, "rose": 211, "pink": 218, "hot_pink": 205, "deep_pink": 198,
+    # oranges, yellows and browns
+    "orange": 208, "dark_orange": 166, "amber": 214, "gold": 220, "lemon": 227,
+    "cream": 229, "peach": 216, "tan": 180, "khaki": 186, "brown": 94,
+    "rust": 130, "copper": 173,
+    # greens
+    "lime": 118, "chartreuse": 112, "olive": 100, "dark_green": 28, "forest": 22,
+    "emerald": 35, "sea_green": 72, "mint": 121, "pale_green": 157,
+    # blues and cyans
+    "teal": 30, "turquoise": 44, "aqua": 51, "sky": 117, "light_blue": 153,
+    "steel_blue": 67, "cornflower": 69, "royal_blue": 63, "dodger_blue": 33,
+    "dark_blue": 19, "navy": 17, "slate": 60,
+    # purples
+    "indigo": 54, "purple": 93, "dark_purple": 53, "violet": 177, "lavender": 183,
+    "plum": 176, "orchid": 170, "fuchsia": 201,
+    # grays
+    "charcoal": 236, "dark_gray": 238, "gray": 244, "silver": 249,
+    "light_gray": 252, "snow": 255,
+}
+
+# Every color name, so editors can autocomplete style(fg="...") and catch typos.
+# Keep in step with COLORS and EXTRA_COLORS (checked below).
+ColorName = Literal[
+    "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "bright_black",
+    "bright_red", "bright_green", "bright_yellow", "bright_blue", "bright_magenta",
+    "bright_cyan", "bright_white",
+    "dark_red", "maroon", "crimson", "scarlet", "coral", "salmon", "rose", "pink",
+    "hot_pink", "deep_pink", "orange", "dark_orange", "amber", "gold", "lemon", "cream",
+    "peach", "tan", "khaki", "brown", "rust", "copper", "lime", "chartreuse", "olive",
+    "dark_green", "forest", "emerald", "sea_green", "mint", "pale_green", "teal",
+    "turquoise", "aqua", "sky", "light_blue", "steel_blue", "cornflower", "royal_blue",
+    "dodger_blue", "dark_blue", "navy", "slate", "indigo", "purple", "dark_purple",
+    "violet", "lavender", "plum", "orchid", "fuchsia", "charcoal", "dark_gray", "gray",
+    "silver", "light_gray", "snow",
+]
+# A color: a name, a 256-color palette number, "#rrggbb", or (r, g, b)
+Color = Union[ColorName, str, int, Tuple[int, int, int]]
+assert set(get_args(ColorName)) == set(COLORS) | {"bright_" + c for c in COLORS} | set(EXTRA_COLORS), \
+    "ColorName is out of date with COLORS / EXTRA_COLORS"
 
 # --- Screen / cursor ------------------------------------------------------
 
@@ -53,16 +101,21 @@ def write(s):
 
 # --- Styling ----------------------------------------------------------------
 
-def style(fg=None, bg=None, bold=False, dim=False, italic=False, underline=False, reverse=False):
-    """Escape code for a style. Colors are names from COLORS, prefixed 'bright_' for bright."""
+def style(fg: Optional[Color] = None, bg: Optional[Color] = None, bold: bool = False, dim: bool = False,
+          italic: bool = False, underline: bool = False, reverse: bool = False) -> str:
+    """Escape code for a style. A color can be:
+        a name from COLORS, or 'bright_' + one of those: "red", "bright_red"
+        a name from EXTRA_COLORS: "orange", "teal", "lavender"
+        a number in the 256-color palette: 208
+        a hex string or (r, g, b) for exact colors, if the terminal has true color: "#ff8800" """
     codes = []
     if bold: codes.append("1")
     if dim: codes.append("2")
     if italic: codes.append("3")
     if underline: codes.append("4")
     if reverse: codes.append("7")
-    if fg: codes.append(str(_color_code(fg, 30)))
-    if bg: codes.append(str(_color_code(bg, 40)))
+    if fg is not None: codes.append(_color_code(fg, 30))
+    if bg is not None: codes.append(_color_code(bg, 40))
     return f"{ESC}{';'.join(codes)}m" if codes else ""
 
 def styled(text, **kwargs):
@@ -70,9 +123,28 @@ def styled(text, **kwargs):
     s = style(**kwargs)
     return f"{s}{text}{RESET}" if s else text
 
-def _color_code(name, base):
-    if name.startswith("bright_"): return COLORS[name[7:]] + base + 60
-    return COLORS[name] + base
+def _color_code(color, base):
+    """The SGR code for a color, base is 30 for the foreground or 40 for the background."""
+    extended = base + 8 # 38 / 48 start a 256-color or true color code
+    if isinstance(color, int) and not isinstance(color, bool) and 0 <= color <= 255:
+        return f"{extended};5;{color}"
+    if isinstance(color, (tuple, list)) and len(color) == 3:
+        return f"{extended};2;" + ";".join(str(max(0, min(255, int(v)))) for v in color)
+    if isinstance(color, str):
+        name = color.lower().replace("grey", "gray").replace(" ", "_")
+        if name.startswith("#") and len(name) == 7:
+            try:
+                return f"{extended};2;{int(name[1:3], 16)};{int(name[3:5], 16)};{int(name[5:7], 16)}"
+            except ValueError:
+                pass
+        elif name in COLORS:
+            return str(COLORS[name] + base)
+        elif name.startswith("bright_") and name[7:] in COLORS:
+            return str(COLORS[name[7:]] + base + 60)
+        elif name in EXTRA_COLORS:
+            return f"{extended};5;{EXTRA_COLORS[name]}"
+    raise ValueError(f"unknown color {color!r}: use a name from COLORS or EXTRA_COLORS "
+                     f"(with 'bright_' for the basic ones), 0-255, '#rrggbb' or (r, g, b)")
 
 # --- Text width -------------------------------------------------------------
 # Emoji and CJK characters take two columns, combining accents take none.

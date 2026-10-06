@@ -1,14 +1,14 @@
 from .view import View, Popup
 from .widgets import (
-    Widget, Text, Label, Button, TextInput, ProgressBar, Checkbox, Toggle,
-    Menu, Table, Stdout, DrawMouse, DEFAULT_THEME, field,
+    Widget, Text, Label, Button, TextInput, TextArea, ProgressBar, Slider, Checkbox, Toggle,
+    RadioGroup, Menu, Tree, Table, Stdout, DrawMouse, DEFAULT_THEME, field,
 )
 from .inputs import Input, mouse
 from .layout import LayoutError
-from .shorts import Canvas, style
+from .shorts import Canvas, style, Color, ColorName
 
 __all__ = [
-    "View", "Popup", "Widget", "Text", "Label", "Button", "TextInput", "ProgressBar",
-    "Checkbox", "Toggle", "Menu", "Table", "Stdout", "DrawMouse", "DEFAULT_THEME", "field",
-    "Input", "mouse", "LayoutError", "Canvas", "style",
+    "View", "Popup", "Widget", "Text", "Label", "Button", "TextInput", "TextArea", "ProgressBar",
+    "Slider", "Checkbox", "Toggle", "RadioGroup", "Menu", "Tree", "Table", "Stdout", "DrawMouse", "DEFAULT_THEME", "field",
+    "Input", "mouse", "LayoutError", "Canvas", "style", "Color", "ColorName",
 ]

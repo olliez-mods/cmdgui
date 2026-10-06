@@ -60,6 +60,9 @@ DEFAULT_THEME = {
     "header": style(bold=True, underline=True),
     "on": style(fg="black", bg="green", bold=True),
     "off": style(fg="bright_black", reverse=True),
+    "slider": style(fg="cyan"),
+    "slider_empty": style(fg="bright_black"),
+    "slider_focus": style(fg="cyan", bold=True, reverse=True),
 }
 
 # Changing these means the layout has to be worked out again
@@ -373,6 +376,108 @@ class TextInput(Widget):
         return max(20, text_width(self.placeholder) + 1), 1
 
 
+class TextArea(Widget):
+    """A multi-line text box. Long lines wrap. Enter adds a new line."""
+    value: str = field(default="", kw_only=False)
+    placeholder: str = ""
+    change_callback: Optional[Callable[[str], Any]] = field(default=None, alias="on_change")
+    preferred_width = "10+"
+    preferred_height = "3+"
+    border = True
+    focusable = True
+    captures_text = True
+    def init(self):
+        self.cursor = 0 # index in value
+        self.scroll = 0 # first visible (wrapped) row
+        self._follow = True # scroll to the cursor on the next draw
+    def on_change(self, callback: Callable[[str], Any]): # called with the value after every edit
+        self.change_callback = callback
+
+    def _rows(self, width):
+        """The wrapped rows as (start, end) indexes into value. A line whose length
+        is a multiple of width gets an extra empty row, so the cursor has somewhere to go."""
+        rows, start, width = [], 0, max(1, width)
+        for line in self.value.split("\n"):
+            for col in range(0, len(line) + 1, width):
+                rows.append((start + col, start + min(col + width, len(line))))
+            start += len(line) + 1
+        return rows
+    def _cursor_row(self, rows):
+        """Which row the cursor is on, and its x in that row."""
+        for i, (start, end) in enumerate(rows):
+            next_start = rows[i + 1][0] if i + 1 < len(rows) else None
+            if start <= self.cursor <= end and next_start != self.cursor:
+                return i, self.cursor - start
+        return len(rows) - 1, 0
+
+    def on_input(self, input):
+        if(input.type == "mouse_scroll" and self.mouse_over()):
+            step = -1 if input.details["direction"] == "up" else 1
+            self.scroll = max(0, min(len(self._rows(self.width)) - self.height, self.scroll + step))
+            return
+        if(input.type == "mouse_down" and self.mouse_over()):
+            rows = self._rows(self.width)
+            x, y = self.mouse_pos()
+            start, end = rows[min(len(rows) - 1, self.scroll + y)]
+            self.cursor = min(end, start + x)
+            return
+        if(input.type != "key"): return
+        key, char = input.details["key"], input.details["char"]
+        value, cursor = self.value, self.cursor
+        rows = self._rows(self.width)
+        row, x = self._cursor_row(rows)
+        line_start = value.rfind("\n", 0, cursor) + 1
+        line_end = value.find("\n", cursor) % (len(value) + 1) # -1 (last line) becomes len(value)
+        if(char or key == "enter"):
+            char = char or "\n"
+            value = value[:cursor] + char + value[cursor:]
+            cursor += 1
+        elif(key == "backspace" and cursor > 0):
+            value = value[:cursor - 1] + value[cursor:]
+            cursor -= 1
+        elif(key == "delete"):
+            value = value[:cursor] + value[cursor + 1:]
+        elif(key == "left"): cursor = max(0, cursor - 1)
+        elif(key == "right"): cursor = min(len(value), cursor + 1)
+        elif(key in ("up", "down", "page_up", "page_down")):
+            step = {"up": -1, "down": 1, "page_up": -self.height, "page_down": self.height}[key]
+            start, end = rows[max(0, min(len(rows) - 1, row + step))]
+            cursor = min(end, start + x)
+        elif(key in ("home", "ctrl+a")): cursor = line_start
+        elif(key in ("end", "ctrl+e")): cursor = line_end
+        elif(key == "ctrl+home"): cursor = 0
+        elif(key == "ctrl+end"): cursor = len(value)
+        else:
+            return
+        changed = value != self.value
+        self._follow = True
+        self.value, self.cursor = value, cursor
+        if(changed): _call(self.change_callback, self.value)
+
+    def draw(self, c):
+        self.cursor = max(0, min(self.cursor, len(self.value)))
+        rows = self._rows(c.width)
+        row, x = self._cursor_row(rows)
+        if(self._follow): # keep the cursor in view
+            if(row < self.scroll): self._set_scroll(row)
+            if(row >= self.scroll + c.height): self._set_scroll(row - c.height + 1)
+            self._follow = False
+        self._set_scroll(max(0, min(self.scroll, len(rows) - c.height)))
+        if(not self.value and not self.focused):
+            for i, line in enumerate(wrap(self.placeholder, c.width)[:c.height]):
+                c.text(0, i, line, self.theme("dim"))
+            return
+        for i, (start, end) in enumerate(rows[self.scroll:self.scroll + c.height]):
+            c.text(0, i, self.value[start:end])
+        if(self.focused and self.scroll <= row < self.scroll + c.height):
+            char = self.value[self.cursor] if self.cursor < len(self.value) and self.value[self.cursor] != "\n" else " "
+            c.put(x, row - self.scroll, char, self.theme("cursor"))
+    def _set_scroll(self, value):
+        object.__setattr__(self, "scroll", value) # no redraw, we're already drawing
+    def content_size(self):
+        return 30, 5
+
+
 class ProgressBar(Widget):
     value: float = field(default=0.0, kw_only=False) # 0 to 1
     show_percent: bool = True
@@ -386,6 +491,78 @@ class ProgressBar(Widget):
         c.text(0, mid, "█" * filled, self.theme("progress"))
         c.text(filled, mid, "░" * (bar - filled), self.theme("progress_empty"))
         c.text(bar, mid, label)
+    def content_size(self):
+        return 20, 1
+
+
+class Slider(Widget):
+    """Pick a number by dragging, clicking, or the arrow keys when focused."""
+    value: float = field(default=0.0, kw_only=False)
+    min: float = 0.0
+    max: float = 1.0
+    step: Optional[float] = None # snap to multiples of this; None is smooth (arrows move 1/20th)
+    show_value: bool = True
+    change_callback: Optional[Callable[[float], Any]] = field(default=None, alias="on_change")
+    preferred_width = "5+"
+    preferred_height = 1
+    focusable = True
+    def init(self):
+        self.dragging = False
+    def on_change(self, callback: Callable[[float], Any]): # called with the value when the user changes it
+        self.change_callback = callback
+
+    def _label(self, value):
+        whole = all(float(v).is_integer() for v in (self.min, self.max, self.step or 0.5))
+        return f" {round(value)}" if whole else f" {value:.2f}"
+    def _track_width(self, width):
+        if(not self.show_value): return max(1, width)
+        # Room for the longest label, so the track doesn't change length while dragging
+        label = max(len(self._label(v)) for v in (self.min, self.max, self.value))
+        return max(1, width - label)
+    def _set(self, value):
+        """Clamp, snap to the step, and tell on_change if it moved."""
+        low, high = sorted((self.min, self.max))
+        if(self.step):
+            value = self.min + round((value - self.min) / self.step) * self.step
+            if(isinstance(self.step, int) and isinstance(self.min, int)): value = int(value)
+            else: value = round(value, 10) # tidy up 0.30000000000000004
+        value = max(low, min(high, value))
+        if(value != self.value):
+            self.value = value
+            _call(self.change_callback, value)
+    def _set_from_mouse(self):
+        track = self._track_width(self.width)
+        x = max(0, min(track - 1, self.mouse_pos()[0]))
+        self._set(self.min + (self.max - self.min) * (x / max(1, track - 1)))
+
+    def on_input(self, input):
+        if(input.type == "key"):
+            key = input.details["key"]
+            step = self.step or (self.max - self.min) / 20
+            moves = {"left": -step, "down": -step, "right": step, "up": step,
+                     "page_down": -step * 5, "page_up": step * 5}
+            if(key in moves): self._set(self.value + moves[key])
+            elif(key == "home"): self._set(self.min)
+            elif(key == "end"): self._set(self.max)
+        elif(input.type == "mouse_down" and input.details["button"] == 0 and self.mouse_over()):
+            self.dragging = True
+            self._set_from_mouse()
+        elif(input.type == "mouse_move" and self.dragging and mouse.is_down(0)):
+            self._set_from_mouse() # keeps following the mouse outside the widget
+        elif(input.type in ("mouse_up", "mouse_move") and self.dragging):
+            self.dragging = False
+
+    def draw(self, c):
+        track = self._track_width(c.width)
+        span = (self.max - self.min) or 1
+        fraction = max(0.0, min(1.0, (self.value - self.min) / span))
+        handle = round(fraction * (track - 1))
+        mid = c.height // 2
+        c.text(0, mid, "━" * handle, self.theme("slider"))
+        c.text(handle + 1, mid, "─" * (track - handle - 1), self.theme("slider_empty"))
+        c.put(handle, mid, "●", self.theme("slider_focus" if self.focused or self.dragging else "slider"))
+        if(self.show_value):
+            c.text(track, mid, self._label(self.value))
     def content_size(self):
         return 20, 1
 
@@ -420,6 +597,62 @@ class Toggle(Checkbox):
         c.text(x + 1, mid, fit(self.text, c.width - x - 1), self.theme("button_focus") if self.focused else "")
     def content_size(self):
         return text_width(self.text) + 7, 1
+
+
+class RadioGroup(Widget):
+    """Pick one of several options. Arrow keys or a click change the choice."""
+    options: list = field(default_factory=list, kw_only=False)
+    selected: int = 0
+    horizontal: bool = False # options side by side instead of one per line
+    change_callback: Optional[Callable[[int, Any], Any]] = field(default=None, alias="on_change")
+    focusable = True
+    def on_change(self, callback: Callable[[int, Any], Any]): # called with (index, option)
+        self.change_callback = callback
+    @property
+    def value(self):
+        """The selected option, or None if there are none."""
+        return self.options[self.selected] if 0 <= self.selected < len(self.options) else None
+
+    def select(self, index):
+        index = max(0, min(len(self.options) - 1, index))
+        if(index != self.selected and self.options):
+            self.selected = index
+            _call(self.change_callback, index, self.options[index])
+
+    def _positions(self):
+        """(x, y, width) of each option, relative to the widget."""
+        out, x = [], 0
+        for i, option in enumerate(self.options):
+            width = text_width(str(option)) + 4
+            out.append((x, 0, width) if self.horizontal else (0, i, width))
+            x += width + 2
+        return out
+
+    def on_input(self, input):
+        if(input.type == "key"):
+            back, forward = ("left", "right") if self.horizontal else ("up", "down")
+            key = input.details["key"]
+            if(key == back): self.select(self.selected - 1)
+            elif(key == forward): self.select(self.selected + 1)
+            elif(key == "home"): self.select(0)
+            elif(key == "end"): self.select(len(self.options) - 1)
+        elif(input.type == "mouse_down" and self.mouse_over()):
+            mx, my = self.mouse_pos()
+            for i, (x, y, width) in enumerate(self._positions()):
+                if(my == y and x <= mx < x + width):
+                    self.select(i)
+
+    def draw(self, c):
+        for i, (option, (x, y, _)) in enumerate(zip(self.options, self._positions())):
+            s = self.theme("button_focus") if self.focused and i == self.selected else ""
+            c.text(x, y, fit(("(•) " if i == self.selected else "( ) ") + str(option), c.width - x), s)
+    def content_size(self):
+        positions = self._positions()
+        if(not positions): return 5, 1
+        if(self.horizontal):
+            x, _, width = positions[-1]
+            return x + width + 1, 1
+        return max(width for _, _, width in positions) + 1, len(positions)
 
 
 class Menu(Widget):
@@ -478,6 +711,143 @@ class Menu(Widget):
         return width + 2, max(1, min(len(self.items), 10))
 
 
+class Tree(Widget):
+    """A list of items that fold open to show the items inside them.
+
+    nodes is a dict of label -> children, where children is another dict, a list,
+    None for a leaf, or a function returning the children (called when first opened):
+        Tree({"src": {"main.py": None, "util.py": None}, "docs": ["intro.md"]})
+
+    A node is identified by its path, a tuple of labels: ("src", "main.py")."""
+    nodes: Any = field(default_factory=dict, kw_only=False)
+    selected: Optional[tuple] = None # path of the highlighted node
+    select_callback: Optional[Callable[[tuple], Any]] = field(default=None, alias="on_select")
+    border = True
+    focusable = True
+    def init(self):
+        self.expanded = set() # paths of open nodes
+        self.scroll = 0
+        self._loaded = {} # path -> children, for nodes given as functions
+        self._follow = True # scroll to the selection on the next draw
+    def on_select(self, callback: Callable[[tuple], Any]): # called with the path on Enter or a click
+        self.select_callback = callback
+
+    def _children(self, path, value):
+        """A node's children as (label, value) pairs."""
+        if(callable(value)):
+            if(path not in self._loaded): self._loaded[path] = value()
+            value = self._loaded[path]
+        if(value is None): return []
+        if(isinstance(value, dict)): return list(value.items())
+        out = []
+        for item in value:
+            if(isinstance(item, dict)): out.extend(item.items())
+            else: out.append((item, None))
+        return out
+    def _rows(self):
+        """The visible rows as (path, depth, is_branch)."""
+        rows = []
+        def walk(children, parent):
+            for label, value in children:
+                path = parent + (str(label),)
+                rows.append((path, len(parent), value is not None))
+                if(value is not None and path in self.expanded):
+                    walk(self._children(path, value), path)
+        walk(self._children((), self.nodes), ())
+        return rows
+    def _index(self, rows):
+        return next((i for i, row in enumerate(rows) if row[0] == self.selected), 0)
+
+    def expand(self, path=None):
+        """Open a node (the selected one by default)."""
+        self.expanded.add(tuple(path or self.selected or ()))
+        self.refresh()
+    def collapse(self, path=None):
+        self.expanded.discard(tuple(path or self.selected or ()))
+        self.refresh()
+    def toggle(self, path=None):
+        path = tuple(path or self.selected or ())
+        (self.collapse if path in self.expanded else self.expand)(path)
+    def expand_all(self):
+        """Open every node, except ones given as functions that haven't been opened yet."""
+        def walk(children, parent):
+            for label, value in children:
+                path = parent + (str(label),)
+                if(value is not None and (not callable(value) or path in self._loaded)):
+                    self.expanded.add(path)
+                    walk(self._children(path, value), path)
+        walk(self._children((), self.nodes), ())
+        self.refresh()
+    def collapse_all(self):
+        self.expanded.clear()
+        self.refresh()
+    def reload(self, path=None):
+        """Forget the cached children of function nodes (all of them by default),
+        so they're asked again. Use after the data behind them changes."""
+        if(path is None): self._loaded.clear()
+        else: self._loaded.pop(tuple(path), None)
+        self.refresh()
+
+    def _choose(self):
+        if(self.selected is not None): _call(self.select_callback, self.selected)
+    def _move_to(self, path):
+        self._follow = True
+        self.selected = path
+
+    def on_input(self, input):
+        rows = self._rows()
+        if(not rows): return
+        index = self._index(rows)
+        path, depth, branch = rows[index]
+        if(input.type == "key"):
+            key = input.details["key"]
+            moves = {"up": -1, "down": 1, "page_up": -self.height, "page_down": self.height,
+                     "home": -len(rows), "end": len(rows)}
+            if(key in moves):
+                self._move_to(rows[max(0, min(len(rows) - 1, index + moves[key]))][0])
+            elif(key == "right" and branch):
+                if(path not in self.expanded): self.expand(path)
+                elif(index + 1 < len(rows) and rows[index + 1][1] > depth): self._move_to(rows[index + 1][0])
+            elif(key == "left"):
+                if(path in self.expanded): self.collapse(path)
+                elif(depth > 0): self._move_to(path[:-1]) # up to the parent
+            elif(key in ("enter", "space")):
+                if(self.selected is None): self.selected = path
+                if(branch): self.toggle(path)
+                self._choose()
+        elif(input.type == "mouse_down" and self.mouse_over()):
+            y = self.mouse_pos()[1]
+            if(self.scroll + y >= len(rows)): return
+            path, depth, branch = rows[self.scroll + y]
+            self.selected = path
+            if(branch): self.toggle(path)
+            self._choose()
+        elif(input.type == "mouse_scroll" and self.mouse_over()):
+            step = -1 if input.details["direction"] == "up" else 1
+            self.scroll = max(0, min(len(rows) - self.height, self.scroll + step))
+
+    def draw(self, c):
+        rows = self._rows()
+        index = self._index(rows)
+        if(self._follow): # keep the selection in view
+            if(index < self.scroll): self._set_scroll(index)
+            if(index >= self.scroll + c.height): self._set_scroll(index - c.height + 1)
+            self._follow = False
+        self._set_scroll(max(0, min(self.scroll, len(rows) - c.height)))
+        for row, (path, depth, branch) in enumerate(rows[self.scroll:self.scroll + c.height]):
+            s = ""
+            if(self.scroll + row == index):
+                s = self.theme("selected" if self.focused else "selected_unfocused")
+            arrow = ("▾ " if path in self.expanded else "▸ ") if branch else "  "
+            c.text(0, row, pad_right(fit(" " + "  " * depth + arrow + path[-1], c.width), c.width), s)
+    def _set_scroll(self, value):
+        object.__setattr__(self, "scroll", value) # no redraw, we're already drawing
+    def content_size(self):
+        rows = self._rows()
+        width = max([text_width(path[-1]) + 2 * depth for path, depth, _ in rows] + [6])
+        return width + 4, max(1, min(len(rows), 10))
+
+
 class Table(Widget):
     columns: list = field(default_factory=list, kw_only=False) # header names
     rows: list = field(default_factory=list)                   # lists of values
@@ -522,15 +892,7 @@ class Stdout(Widget):
         self.scroll = 0 # wrapped lines up from the bottom
     def on_input(self, input):
         if(input.type in ("stdout", "stderr")):
-            s = self.theme("error") if input.type == "stderr" else ""
-            # Text can arrive mid-line, so the first part continues the last line
-            parts = input.details["text"].split("\n")
-            self.lines[-1][0] += parts[0]
-            if(parts[0] and s): self.lines[-1][1] = s
-            self.lines.extend([part, s] for part in parts[1:])
-            del self.lines[:-self.max_lines]
-            if(self.scroll): self._set_scroll(self.scroll + len(parts) - 1) # stay put while scrolled up
-            self.refresh()
+            self.write(input.details["text"], error=input.type == "stderr")
         elif(input.type == "mouse_scroll" and self.mouse_over()):
             step = 1 if input.details["direction"] == "up" else -1
             self._set_scroll(max(0, self.scroll + step))
@@ -541,6 +903,22 @@ class Stdout(Widget):
         """Remove everything shown so far."""
         self.lines = [["", ""]]
         self._set_scroll(0)
+    def write(self, text, error=False):
+        """Add raw text to this widget only (not the real stdout)."""
+        s = self.theme("error") if error else ""
+        # Text can arrive mid-line, so the first part continues the last line
+        parts = text.split("\n")
+        self.lines[-1][0] += parts[0]
+        if(parts[0] and s): self.lines[-1][1] = s
+        self.lines.extend([part, s] for part in parts[1:])
+        del self.lines[:-self.max_lines]
+        if(self.scroll): self._set_scroll(self.scroll + len(parts) - 1) # stay put while scrolled up
+        self.refresh()
+    def print(self, *values, sep=" ", end="\n", error=False):
+        """Like print(), but only shows up in this widget."""
+        sep = " " if sep is None else sep
+        end = "\n" if end is None else end
+        self.write(sep.join(map(str, values)) + end, error)
     def content_size(self):
         return 40, 8
     def draw(self, c):
