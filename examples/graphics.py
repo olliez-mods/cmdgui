@@ -7,6 +7,7 @@ import time
 # Sextant needs a newer terminal, and octant a very new font: boxes mean no support.
 # Press a to turn fix_aspect off and on: off, circles go tall and thin in quad mode.
 # The sketch pad keeps what you draw: drag in it, press c to clear. q to quit.
+# Drag the line left of the picture to make it bigger or smaller.
 
 START = time.monotonic()
 ripples = []  # (x, y as fractions of the picture, time made)
@@ -87,6 +88,7 @@ class Demo(View):
     scene = Graphics(background="navy", on_paint=paint, on_click=ripple)
 
 view = Demo()
+view.adjustable([view.mode, view.info, view.sketch], view.scene) # a line to drag between them
 view.on_key("c", view.sketch.clear)
 view.on_key("a", lambda: view.scene.set(fix_aspect=not view.scene.fix_aspect))
 view.every(1 / 30, view.scene.repaint)

@@ -36,7 +36,7 @@ view = View("...", theme={
 | `tab` | a tab on a `Tabs` bar | plain |
 | `tab_active` | the shown tab's name (on a borderless `Tabs` with the bar focused, `selected` is used) | bold |
 | `on`, `off` | a toggle's switch | black on green, reversed bright black |
-| `divider_hover` | a `Split`'s divider under the mouse, or being dragged | bold yellow |
+| `divider_hover` | a [draggable line](layouts.md#draggable-lines) under the mouse, or being dragged | bold yellow |
 | `today` | today's date in a `Calendar` | bold, underlined |
 | `log_debug`, `log_info`, `log_warning`, `log_error`, `log_critical` | the level names in a `Log` | bright black, cyan, bold yellow, bold red, bold white on red |
 | `match` | text matching a `Log`'s search | black on yellow |

@@ -4,14 +4,14 @@ from .base import Widget, WIDGET_TYPES
 
 
 class Container(Widget):
-    """A widget that holds panels of other widgets, like Tabs and Split. This does the
+    """A widget that holds panels of other widgets, like Tabs. This does the
     bookkeeping; subclasses place, show and draw the panels (see the container methods
     on Widget: _visible_panels, _arrange_children, _needed_size and so on).
 
     The panels come from, in order:
         class attributes of a subclass   files = Files()      (each instance gets copies)
         keyword arguments                Tabs(files=Files())
-        positional arguments             Split(Menu(), Stdout())   (if positional_names)
+        positional arguments             (if positional_names)
 
     Each can be a Panel or a single widget, which is put in a panel of its own.
     container.name finds the panel, or the widget if it was given on its own, and

@@ -69,7 +69,7 @@ DEFAULT_THEME = {
     "slider": style(fg="cyan"),
     "slider_empty": style(fg="bright_black"),
     "slider_focus": style(fg="cyan", bold=True, reverse=True),
-    "divider_hover": style(fg="yellow", bold=True), # a Split's divider under the mouse, or being dragged
+    "divider_hover": style(fg="yellow", bold=True), # a draggable line under the mouse, or being dragged
     "today": style(bold=True, underline=True), # today's date in a Calendar
     "log_debug": style(fg="bright_black"),     # the level names in a Log
     "log_info": style(fg="cyan"),
@@ -279,7 +279,7 @@ class Widget(_FieldWidget):
     def _border_marks(self) -> dict:
         """Changes to the border lines once they're drawn: {(x, y): (char, style)} in
         screen cells. char replaces a plain straight line there (None keeps it); junctions
-        are kept, and only restyled. Split uses it to show its divider can be dragged."""
+        are kept, and only restyled."""
         return {}
 
     def _claims_key(self, key) -> bool:

@@ -1,11 +1,10 @@
-from cmdgui import View, Split, Tree, Text
+from cmdgui import View, Tree, Text
 from cmdgui.shorts import escape
 import os
 
 # A file browser: folders load their contents when you first open them.
 # Arrows to move (right opens, left closes), Enter or click to pick, q to quit.
-# Drag the line between the files and the preview to resize them (or Tab to it and
-# use left/right).
+# Drag the line between the files and the preview to resize them.
 
 def folder(path):
     def load():
@@ -23,23 +22,20 @@ def show(path):
     full = os.path.join(root, *path)
     if os.path.isdir(full):
         # escape(): a path with [ in it would otherwise be read as markup
-        view.browser.preview.set(text=f"[bold]{escape(full)}[/]\n\n[cyan]{len(os.listdir(full))}[/] items", markup=True)
+        view.preview.set(text=f"[bold]{escape(full)}[/]\n\n[cyan]{len(os.listdir(full))}[/] items", markup=True)
         return
     try:
         with open(full, encoding="utf-8") as f:
-            view.browser.preview.set(text=f.read(4000), markup=False)  # a file's text, shown exactly as it is
+            view.preview.set(text=f.read(4000), markup=False)  # a file's text, shown exactly as it is
     except (OSError, UnicodeDecodeError) as e:
-        view.browser.preview.set(text=f"[red]Can't show this file:[/] {escape(str(e))}", markup=True)
-
-class Browser(Split):
-    position = 0.3   # the files get 30% of the width; dragging keeps it a fraction
-    files = Tree(folder(root), title=os.path.basename(root), on_select=show)
-    preview = Text("Pick a file", border=True)
+        view.preview.set(text=f"[red]Can't show this file:[/] {escape(str(e))}", markup=True)
 
 class App(View):
-    layout = "browser"
-    browser = Browser()
+    layout = "files{+b} preview{+b}"
+    files = Tree(folder(root), title=os.path.basename(root), on_select=show)
+    preview = Text("Pick a file")
 
 view = App()
-view.focus(view.browser.files)
+view.adjustable(view.files, view.preview, position=0.3)  # the files get 30% of the width; dragging keeps it a fraction
+view.focus(view.files)
 view.wait()

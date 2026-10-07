@@ -40,6 +40,33 @@ class Sidebar(Panel):    # the same as layout = "search \n results"
     results = Menu()
 ```
 
+## Panels in a layout
+
+A [`Panel`](widgets.md#tabs) is a layout of widgets, written like a view. It can go in a
+layout cell like a widget, to group widgets that belong together:
+
+```python
+class Sidebar(Panel):
+    layout = """
+        search
+        results
+    """
+    search = TextInput()
+    results = Menu()
+
+class App(View):
+    layout = "sidebar{+b} editor{+b}"
+    sidebar = Sidebar()
+    editor = TextArea()
+
+view = App()
+view.sidebar.search    # typed in your editor
+```
+
+`view.sidebar` is the panel itself. Flags on its cell (`{+b}`, `{w=30}`, `{t=title}`)
+work as for a widget, and bordered widgets inside join up with its border. A panel is
+also how a whole group of widgets can be one side of a [draggable line](#draggable-lines).
+
 ## Flags
 
 Put flags in `{}` on the end of a widget's first cell, separated by commas (no spaces,
@@ -108,8 +135,75 @@ don't (buttons, labels, checkboxes). Change it with `border=True` / `border=Fals
 Set one for the whole view with `View(border_style="rounded")`, or per widget with
 `border_style=` or `{b=heavy}` in the layout. Lines of different styles still join up:
 where they meet, the junction takes the style that ranks highest (double, then heavy,
-rounded, single, ascii). A panel inside a `Split` or `Tabs`, or a `Popup`, can have its
+rounded, single, ascii). A panel in a layout or a `Tabs`, or a `Popup`, can have its
 own `border_style` too; otherwise a panel's border takes its container's style.
+
+## Draggable lines
+
+`adjustable()` puts a line between two widgets that are next to each other, for
+dragging with the mouse:
+
+```python
+class App(View):
+    layout = """
+        heading   heading
+        files     editor
+        files     log
+    """
+    heading = Label("my editor")
+    files = Tree(...)
+    editor = TextArea()
+    log = Log()
+
+view = App()
+view.adjustable(view.files, [view.editor, view.log], position=24)  # drag left and right
+view.adjustable(view.editor, view.log, position=-6)                # drag up and down
+```
+
+Dragging only moves room between the two sides of the line. Everything else stays put,
+so `heading` keeps its full width however far you drag.
+
+- The two sides have to line up: side by side with the same rows, or one above the
+  other with the same columns. Together they form a rectangle, and the line moves
+  inside it. If they don't line up, `adjustable()` raises an error that says why.
+- A side can be a list of widgets stacked along the line, like `[view.editor, view.log]`
+  above. Each one has to reach from the line to the side's far edge. For anything more
+  complicated, put the widgets in a [panel](#panels-in-a-layout): the panel is one
+  widget on its side, and its own layout shares out the room.
+- The line is always drawn, even between widgets without borders. It has a grip, and
+  lights up under the mouse (`divider_hover` in the theme).
+- Each side keeps its minimum size. A widget's width (`w=24` or `preferred_width`) is
+  only where the line starts.
+- Moving one line doesn't move another. Above, dragging the `files` line changes the
+  width of `editor` and `log`, but not the height they share.
+- Panels and popups have `adjustable()` too. Call it in their `init()`.
+
+### Position
+
+`position` says where the line goes, for the side you name first:
+
+| `position` | |
+|---|---|
+| `0.3` (a float) | that fraction of the room |
+| `30` (an int) | 30 cells |
+| `-30` (a negative int) | the other side gets 30 cells, and this one the rest |
+
+Without one, the line starts where the layout puts it. Whatever kind you pick stays the
+same as the terminal resizes, and when the line is dragged: `-30` keeps the other side
+30 cells wide, a fraction stays a fraction.
+
+`adjustable()` returns an `Edge`. Get it again later with `edge()`, naming one widget
+from each side:
+
+```python
+view.adjustable(view.files, [view.editor, view.log], on_change=save_width)
+view.edge(view.files, view.editor).position = 0.3   # files get 30%
+view.edge(view.editor, view.files).position         # 0.7: for the side named first
+```
+
+`on_change(position)` is called when the user drags the line, with the position for
+the side named first, and in the same kind of number. `edge.on_change(fn)` sets it
+later, and `None` stops it.
 
 ## Hiding widgets
 

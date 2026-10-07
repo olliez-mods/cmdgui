@@ -19,7 +19,6 @@
 | `tree` | [`Tree`](#tree) | Nested items that fold open |
 | `table` | [`Table`](#table) | Rows and columns |
 | `tabs` | [`Tabs`](#tabs) | Several panels in one place, with a bar to switch between them |
-| `split` | [`Split`](#split) | Two panels with a divider to drag between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
 | `log` | [`Log`](#log) | Log messages with levels in colour, filtering and search |
 | `graphics` | [`Graphics`](#graphics) | Draw in pixels: lines, shapes, curves |
@@ -427,74 +426,6 @@ widget. The tab bar shows each panel's `title`, or its name.
 
 Tabs can go inside panels (tabs within tabs) and inside popups. See
 `examples/tabs.py`.
-
-## Split
-
-```python
-from cmdgui import View, Panel, Split, Tree, TextArea, Label
-
-class Files(Panel):
-    layout = "tree \n info"
-    tree = Tree({"src": ["main.py"]})
-    info = Label()
-
-class Editor(Split):
-    position = 24        # the files panel is 24 wide
-    files = Files()
-    text = TextArea()    # a single widget doesn't need a panel
-
-class App(View):
-    layout = "editor"
-    editor = Editor()
-
-view = App()
-view.editor.files.tree    # a widget in the first panel
-view.editor.text          # the second panel's widget
-```
-
-Two panels side by side, with a line between them to drag with the mouse. Or Tab to the
-split and move the line with the arrow keys, and Home/End to the smallest or largest it
-can go. `vertical=True` puts the first panel above the second.
-
-The line has a short heavy grip in its middle (`┃`, or `━` when stacked) to show it can
-be moved. Under the mouse, and while it's dragged, the whole line lights up
-(`divider_hover` in the theme); while the split is focused, the grip does.
-
-Each side is a [`Panel`](#tabs) or a single widget, as class attributes of a subclass,
-passed by name (`Split(files=Files(), log=Log())`), or passed in order
-(`Split(Menu(items), Stdout())`). `split.first` and `split.second` are the two panels.
-A widget given by name has that name as its border title, as in a view's layout.
-
-`position` is how much room the first panel gets:
-
-| `position` | |
-|---|---|
-| `0.3` (a float) | that fraction of the room; `0.5` by default |
-| `30` (an int) | 30 cells |
-| `-30` (a negative int) | the second panel gets 30 cells, and the first the rest |
-
-Whatever kind you pick stays the same as the terminal resizes, and when the line is
-dragged: a fraction stays a fraction. `on_change(fn(position))` is called when the user
-moves it. The line stops where either panel would get smaller than its widgets need.
-
-With a border (the default), the panels share it and the line between them, so
-bordered widgets inside join up with it, as in tabs. Splits can go inside splits (and
-tabs, and popups):
-
-```python
-class Logs(Split):
-    vertical = True
-    position = -6        # prints get 6 rows at the bottom
-    log = Log()
-    prints = Stdout()
-
-class Main(Split):
-    position = 24
-    controls = Controls()
-    logs = Logs()
-```
-
-See `examples/log_viewer.py`.
 
 ## Stdout
 

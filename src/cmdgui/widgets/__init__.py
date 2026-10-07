@@ -10,6 +10,5 @@ from .stdout import Stdout, DrawMouse
 from .container import Container
 from .tabs import Tabs
 from .graphics import Graphics
-from .split import Split
 from .dates import Calendar, DatePicker
 from .log import Log

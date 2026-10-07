@@ -150,6 +150,58 @@ def _build_slots(grid, slot_types, slot_flags):
     return slots
 
 
+def pair_axis(layout, first, second):
+    """Check two sides (lists of widget names) can have a draggable line between them,
+    and say which way it's dragged: "x" when they're side by side, "y" when stacked.
+    Returns (axis, first, second), swapped if second comes first.
+
+    Together the two sides must form a rectangle, so dragging only changes them.
+    A side with more than one widget is a stack along the line: each of its widgets
+    reaches all the way from the line to the side's far edge."""
+    def describe(names):
+        return names[0] if len(names) == 1 else "[" + ", ".join(names) + "]"
+
+    def box(names):
+        """(top, left, bottom, right) of the side, in grid cells (bottom, right exclusive)."""
+        slots = [layout.slots[name] for name in names]
+        top, left = min(s.row for s in slots), min(s.col for s in slots)
+        bottom, right = max(s.row + s.rowspan for s in slots), max(s.col + s.colspan for s in slots)
+        if sum(s.rowspan * s.colspan for s in slots) != (bottom - top) * (right - left):
+            raise LayoutError(f"{describe(names)} doesn't form a rectangle, so it can't be one side of a draggable line")
+        return top, left, bottom, right
+
+    def span(top, left, bottom, right, axis):
+        kind, low, high = ("row", top, bottom) if axis == "x" else ("column", left, right)
+        return f"{kind} {low + 1}" if high - low == 1 else f"{kind}s {low + 1}-{high}"
+
+    if set(first) & set(second):
+        raise LayoutError(f"{', '.join(sorted(set(first) & set(second)))} can't be on both sides of a draggable line")
+    a, b = box(first), box(second)
+    if (b[3] == a[1] and b[0::2] == a[0::2]) or (b[2] == a[0] and b[1::2] == a[1::2]): # second comes first
+        first, second, a, b = second, first, b, a
+    if a[3] == b[1] and a[0::2] == b[0::2]:
+        axis = "x"
+    elif a[2] == b[0] and a[1::2] == b[1::2]:
+        axis = "y"
+    elif a[3] == b[1] or b[3] == a[1]:
+        raise LayoutError(f"{describe(first)} and {describe(second)} have to line up to drag the line between them: "
+                          f"{describe(first)} covers {span(*a, 'x')}, {describe(second)} {span(*b, 'x')}")
+    elif a[2] == b[0] or b[2] == a[0]:
+        raise LayoutError(f"{describe(first)} and {describe(second)} have to line up to drag the line between them: "
+                          f"{describe(first)} covers {span(*a, 'y')}, {describe(second)} {span(*b, 'y')}")
+    else:
+        raise LayoutError(f"{describe(first)} and {describe(second)} aren't next to each other")
+    for names, (top, left, bottom, right) in ((first, a), (second, b)):
+        for name in names:
+            s = layout.slots[name]
+            whole = (s.col, s.col + s.colspan) == (left, right) if axis == "x" else (s.row, s.row + s.rowspan) == (top, bottom)
+            if not whole:
+                raise LayoutError(f"'{name}' doesn't fill the width of its side of the draggable line"
+                                  if axis == "x" else
+                                  f"'{name}' doesn't fill the height of its side of the draggable line")
+    return axis, first, second
+
+
 def parse_size(spec, where=""):
     """Turn a size into (min, max), max None for no limit.
     5 or "5" exactly, "5+" at least 5, "5-10" between, None flexible (at least 1)."""
@@ -178,9 +230,12 @@ class Placement:
     min_width: int # smallest screen the layout fits on
     min_height: int
     fits: bool     # False if the screen is smaller than that
+    lines: dict = None # pair index -> (x, y, w, h) of its draggable line
+    spans: dict = None # pair index -> (axis, start, room, low, high, at) along the axis, for dragging:
+                       # the room the pair has, the line's limits, and where it is
 
 
-def place(layout, width, height, sizes=None, borders=None, outer=False, hidden=()):
+def place(layout, width, height, sizes=None, borders=None, outer=False, hidden=(), pairs=(), positions=None):
     """Work out where every widget goes on a width x height screen.
 
     sizes:   name -> (width spec, height spec), see parse_size
@@ -188,6 +243,10 @@ def place(layout, width, height, sizes=None, borders=None, outer=False, hidden=(
     outer:   always leave room for a border around the whole layout (popups)
     hidden:  names of widgets that take no room: rows and columns that only they
              cover shrink to nothing, and get no rects or frames
+    pairs:   (axis, first names, second names) with a draggable line between them, see pair_axis
+    positions: pair index -> where its line goes, (kind, side, amount): kind "share" for a
+             fraction of the room (0 to 1), or "cells"; side 0 for the first side's size,
+             1 for the second's. Without one, the line goes where the grid puts it.
 
     Border lines sit between grid rows/columns and are shared by neighbours,
     so two bordered widgets next to each other have one line between them."""
@@ -206,23 +265,90 @@ def place(layout, width, height, sizes=None, borders=None, outer=False, hidden=(
     row_lines = _lines(layout.rows, [(s.row, s.rowspan) for s in slots if borders.get(s.name)], gone_rows)
     if outer:
         col_lines[0] = col_lines[-1] = row_lines[0] = row_lines[-1] = 1
-    col_widths, min_width = _size_tracks(width, layout.cols, col_lines,
-                                         [(s.col, s.colspan, *specs[s.name][0]) for s in slots], gone_cols)
-    row_heights, min_height = _size_tracks(height, layout.rows, row_lines,
-                                           [(s.row, s.rowspan, *specs[s.name][1]) for s in slots], gone_rows)
+    # Pairs with a draggable line between them (hidden widgets left out), and room for
+    # both sides' minimums plus the line, even with no border line there in the grid
+    pairs = [(i, axis, [n for n in first if n not in hidden], [n for n in second if n not in hidden])
+             for i, (axis, first, second) in enumerate(pairs)]
+    pairs = [(i, axis, first, second) for i, axis, first, second in pairs if first and second]
+    col_items = [(s.col, s.colspan, *specs[s.name][0]) for s in slots]
+    row_items = [(s.row, s.rowspan, *specs[s.name][1]) for s in slots]
+    for _, axis, first, second in pairs:
+        k = 0 if axis == "x" else 1
+        ends = [(s.col, s.col + s.colspan) if axis == "x" else (s.row, s.row + s.rowspan)
+                for s in (layout.slots[n] for n in first + second)]
+        start, end = min(a for a, _ in ends), max(b for _, b in ends)
+        need = max(specs[n][k][0] for n in first) + max(specs[n][k][0] for n in second) + 1
+        (col_items if axis == "x" else row_items).append((start, end - start, need, None))
+    col_widths, min_width = _size_tracks(width, layout.cols, col_lines, col_items, gone_cols)
+    row_heights, min_height = _size_tracks(height, layout.rows, row_lines, row_items, gone_rows)
     col_x = _starts(col_widths, col_lines)
     row_y = _starts(row_heights, row_lines)
 
-    rects, frames = {}, {}
+    rects = {}
     for s in slots:
         x, y = col_x[s.col], row_y[s.row]
         last_col, last_row = s.col + s.colspan - 1, s.row + s.rowspan - 1
         w = col_x[last_col] + col_widths[last_col] - x
         h = row_y[last_row] + row_heights[last_row] - y
-        rects[s.name] = (x, y, w, h)
-        if borders.get(s.name):
-            frames[s.name] = (x - 1, y - 1, w + 2, h + 2)
-    return Placement(rects, frames, min_width, min_height, width >= min_width and height >= min_height)
+        rects[s.name] = [x, y, w, h]
+    lines, spans = _place_pairs(rects, pairs, specs, positions or {})
+    frames = {name: (x - 1, y - 1, w + 2, h + 2) for name, (x, y, w, h) in rects.items() if borders.get(name)}
+    edges = list(frames.values()) + list(lines.values()) + ([(0, 0, width, height)] if outer else [])
+    lines = {i: _reach(line, spans[i][0], edges) for i, line in lines.items()}
+    rects = {name: tuple(rect) for name, rect in rects.items()}
+    return Placement(rects, frames, min_width, min_height, width >= min_width and height >= min_height,
+                     lines, spans)
+
+
+def _place_pairs(rects, pairs, specs, positions):
+    """Move the line between each pair to its position, changing only the widgets
+    either side of it. rects (name -> [x, y, w, h]) are changed in place. Returns each
+    pair's line (x, y, w, h), and its spans (see Placement).
+
+    A position is measured in the room the grid gave the pair, so moving one line
+    doesn't move another that shares a widget with it."""
+    grid = {name: rect[:] for name, rect in rects.items()} # before any lines moved
+    lines, spans = {}, {}
+    for i, axis, first, second in pairs:
+        k, j = (0, 1) if axis == "x" else (1, 0) # along the drag, and across it
+        start = min(grid[n][k] for n in first)
+        end = max(grid[n][k] + grid[n][k + 2] for n in second)
+        room = end - start - 1 # for the two sides, less the line
+        at = max(grid[n][k] + grid[n][k + 2] for n in first) # just after the first side, as the grid has it
+        if positions.get(i):
+            kind, side, amount = positions[i]
+            size = round(amount * room) if kind == "share" else amount
+            at = start + (size if side == 0 else room - size)
+        # Each side keeps its minimum (a maximum, like w=24, is only where the line starts)
+        low = max(rects[n][k] + specs[n][k][0] for n in first)
+        high = min(rects[n][k] + rects[n][k + 2] - 1 - specs[n][k][0] for n in second)
+        at = max(low, min(high, at))
+        for n in first:
+            rects[n][k + 2] = max(0, at - rects[n][k])
+        for n in second:
+            far = rects[n][k] + rects[n][k + 2]
+            rects[n][k], rects[n][k + 2] = at + 1, max(0, far - at - 1)
+        across = min(rects[n][j] for n in first + second)
+        length = max(rects[n][j] + rects[n][j + 2] for n in first + second) - across
+        lines[i] = (at, across, 1, length) if axis == "x" else (across, at, length, 1)
+        spans[i] = (axis, start, room, low, high, at)
+    return lines, spans
+
+
+def _reach(line, axis, edges):
+    """Make a line one cell longer at each end where it meets a border or another line,
+    so they join up."""
+    def on_edge(px, py):
+        return any((px in (x, x + w - 1) and y <= py < y + h) or (py in (y, y + h - 1) and x <= px < x + w)
+                   for x, y, w, h in edges if (x, y, w, h) != line)
+    x, y, w, h = line
+    if axis == "x": # a line dragged sideways goes up and down
+        if on_edge(x, y - 1): y, h = y - 1, h + 1
+        if on_edge(x, y + h): h += 1
+    else:
+        if on_edge(x - 1, y): x, w = x - 1, w + 1
+        if on_edge(x + w, y): w += 1
+    return x, y, w, h
 
 
 def _collapsed(hidden, shown):
