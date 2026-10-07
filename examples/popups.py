@@ -20,6 +20,7 @@ class Fruit(Popup):
                   on_select=lambda i, item: (print(f"picked {item}"), view.fruit.close()))
     modal = False
     close_on_outside_click = True
+    preferred_width = 20      # wider than the items need; sizes work as for widgets ("20+", "20-30")
 
 def clear_log():
     view.log.clear()

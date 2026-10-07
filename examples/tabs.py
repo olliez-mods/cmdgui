@@ -24,15 +24,16 @@ class Options(Panel):
 class Settings(Tabs):
     profile = Profile()
     options = Options(title="Options")   # the title is what the tab bar shows
-    log = Stdout()                       # a single widget is a tab too; still collects prints while hidden
+    log = Stdout()                       # any widget can be a tab, no panel needed; still collects prints while hidden
 
 class App(View):
     layout = """
         settings
         status
     """
-    settings = Settings(on_change=lambda name: view.status.set(text=f"showing the {name} tab"))
-    status = Label("showing the profile tab")
+    settings = Settings(on_change=lambda name: view.status.set(
+        text=f"showing the {name} tab ({type(view.settings.shown).__name__})"))
+    status = Label("showing the profile tab (Profile)")
 
 view = App()
 view.focus(view.settings)   # start on the tab bar, so the keys work straight away

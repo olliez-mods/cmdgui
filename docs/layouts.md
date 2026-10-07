@@ -42,8 +42,8 @@ class Sidebar(Panel):    # the same as layout = "search \n results"
 
 ## Panels in a layout
 
-A [`Panel`](widgets.md#tabs) is a layout of widgets, written like a view. It can go in a
-layout cell like a widget, to group widgets that belong together:
+A `Panel` is a widget that holds a layout of other widgets, written like a view. It goes
+in a layout cell like any widget, to group widgets that belong together:
 
 ```python
 class Sidebar(Panel):
@@ -63,9 +63,14 @@ view = App()
 view.sidebar.search    # typed in your editor
 ```
 
-`view.sidebar` is the panel itself. Flags on its cell (`{+b}`, `{w=30}`, `{t=title}`)
-work as for a widget, and bordered widgets inside join up with its border. A panel is
+`view.sidebar` is the panel itself, and like any widget it has `border`, `title`,
+`visible`, `enabled` and the rest, as arguments (`Sidebar(border=True)`), attributes or
+flags on its cell (`{+b}`, `{w=30}`, `{t=title}`). Hiding or disabling a panel hides or
+disables everything in it. Bordered widgets inside join up with its border, and their
+titles go on it, so a panel's border only shows a title if you give it one. A panel is
 also how a whole group of widgets can be one side of a [draggable line](#draggable-lines).
+
+Panels also go in [tabs](widgets.md#tabs), and [popups](popups.md) are panels that float.
 
 ## Flags
 
@@ -135,8 +140,8 @@ don't (buttons, labels, checkboxes). Change it with `border=True` / `border=Fals
 Set one for the whole view with `View(border_style="rounded")`, or per widget with
 `border_style=` or `{b=heavy}` in the layout. Lines of different styles still join up:
 where they meet, the junction takes the style that ranks highest (double, then heavy,
-rounded, single, ascii). A panel in a layout or a `Tabs`, or a `Popup`, can have its
-own `border_style` too; otherwise a panel's border takes its container's style.
+rounded, single, ascii). Panels, `Tabs` and popups take `border_style` like any widget;
+a tab's border takes its `Tabs`' style unless the tab has its own.
 
 ## Draggable lines
 

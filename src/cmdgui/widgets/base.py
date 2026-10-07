@@ -84,7 +84,7 @@ LAYOUT_ATTRS = {"preferred_width", "preferred_height", "border", "visible"}
 # Changing these means the borders have to be drawn again
 BORDER_ATTRS = {"title", "border_style"}
 # Set by the view, so changing them shouldn't trigger a redraw
-POSITION_ATTRS = {"x", "y", "width", "height", "name", "view"}
+POSITION_ATTRS = {"x", "y", "width", "height", "view"}
 
 
 @dataclass_transform(kw_only_default=True, field_specifiers=(field,))
@@ -111,13 +111,24 @@ class Widget(_FieldWidget):
     focusable = False     # can be focused with Tab or a click, and then gets key presses
     captures_text = False # when focused, typed characters go to it before key bindings
 
+    _auto_type = True     # usable in layout strings by its class name; panels set this to False
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         _collect_fields(cls)
-        name = cls.__dict__.get("type_name") or re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).lower()
-        WIDGET_TYPES[name] = cls
+        name = cls.__dict__.get("type_name")
+        if name is None and cls._auto_type:
+            name = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__).lower()
+        if name: WIDGET_TYPES[name] = cls
 
     def __init__(self, *args, **kwargs):
+        self._setup()
+        self.init()
+        self._apply(args, kwargs)
+        self._ready = True
+
+    def _setup(self):
+        """The state every widget has, and the fields' defaults."""
         self._ready = False # attribute changes only redraw once set up
         self._dirty = True
         self._canvas: Optional[Canvas] = None # last drawn content
@@ -127,17 +138,14 @@ class Widget(_FieldWidget):
         self.y = 0
         self.width = 0
         self.height = 0
-        self.name: Optional[str] = None # set by the view for layout widgets
+        self._name: Optional[str] = None # its name in the layout (underscored, so a panel can hold a widget called name)
         self.view: Any = None # the View showing this widget
         self._popup: Any = None # the Popup this widget is in, if any (even inside a tab of it)
-        self._group: Any = None # the View, Popup or Panel whose layout it's in
+        self._group: Any = None # the View or Panel (or Tabs, or Popup) it's in
         self._framed = False    # whether the layout gave it a border
         for name, info in type(self)._fields.items():
             value = info.default_factory() if info.default_factory else getattr(type(self), name, None)
             object.__setattr__(self, name, value)
-        self.init()
-        self._apply(args, kwargs)
-        self._ready = True
 
     def _apply(self, args, kwargs):
         """Set attributes from constructor-style arguments."""
@@ -185,7 +193,7 @@ class Widget(_FieldWidget):
         for key, value in vars(new).items():
             if isinstance(value, (list, dict, set)):
                 new.__dict__[key] = copy.copy(value)
-        new.__dict__.update(view=None, name=None, _popup=None, _group=None, _framed=False,
+        new.__dict__.update(view=None, _name=None, _popup=None, _group=None, _framed=False,
                             _canvas=None, _dirty=True)
         return new
 
@@ -209,7 +217,10 @@ class Widget(_FieldWidget):
             if key in ("enabled", "visible"): self._drop_focus()
 
     def _drop_focus(self):
-        if not (self.enabled and self.visible) and self.focused: self.view.focus(None)
+        """Hidden or disabled: give up focus, if this or a widget inside it has it."""
+        if self.enabled and self.visible or self.view is None: return
+        focused = self.view.focused
+        if focused is self or (focused is not None and self in _groups(focused)): self.view.focus(None)
 
     @property
     def focused(self):
@@ -218,7 +229,12 @@ class Widget(_FieldWidget):
     @property
     def can_focus(self):
         """True if a click (or Tab, with tab_stop) can focus this widget right now."""
-        return self.focusable and self.enabled and self.visible
+        return self.focusable and self._usable and self.visible
+
+    @property
+    def _usable(self):
+        """Enabled, and so is everything it's inside: a disabled panel disables its widgets."""
+        return self.enabled and all(getattr(group, "enabled", True) for group in _groups(self))
 
     def theme(self, key):
         """A style from the view's theme."""
@@ -244,30 +260,26 @@ class Widget(_FieldWidget):
         matter. Popups use it to size themselves."""
         return None, None
 
-    # --- Containers ---
-    # Widgets that hold panels of other widgets (like Tabs) override these. The
-    # view uses them to find, place and draw the widgets inside.
+    # --- Widgets inside widgets ---
+    # Panel (and so Tabs and Popup) override these. The view uses them to find, place
+    # and draw the widgets inside.
 
-    def _panels(self) -> list:
-        """Every panel inside this widget, shown or not."""
-        return []
-
-    def _visible_panels(self) -> list:
-        """The panels being shown: their widgets are drawn and get input."""
+    def _inside(self, hidden=False) -> list:
+        """The widgets inside this one that are shown, or with hidden=True all of them
+        (like the widgets on tabs that aren't shown)."""
         return []
 
     def _arrange_children(self) -> None:
-        """Place the panels inside, after this widget's own rectangle is set."""
+        """Place the widgets inside, after this widget's own rectangle is set."""
 
     def _needed_size(self, fit_content, bordered):
-        """The smallest content (width, height) the panels inside need, or None
-        for either. fit_content: size the panels to their content (in popups)."""
+        """The smallest content (width, height) the widgets inside need, or None
+        for either. fit_content: size them to their content (in popups)."""
         return None, None
 
     def _draw_area(self):
         """The part of the widget it draws itself: (x, y, width, height) relative to
-        its top-left corner. Containers leave out the area their panels cover, so the
-        borders there show."""
+        its top-left corner. Panels draw nothing, so the widgets and borders inside show."""
         return 0, 0, self.width, self.height
 
     def _border_shapes(self, frame):
@@ -312,9 +324,9 @@ def _collect_fields(cls):
     """Work out a widget class's fields from its annotations (and its bases')."""
     own = {}
     for name, hint in _annotations(cls).items():
-        if name.startswith("_") or "ClassVar" in str(hint):
-            continue
         value = cls.__dict__.get(name, _MISSING)
+        if name.startswith("_") or "ClassVar" in str(hint) or isinstance(value, Widget):
+            continue # files: Tree = Tree() in a panel is a widget in it, not a setting
         info = value if isinstance(value, _Field) else _Field(value, None, True, None)
         own[name] = info
         # Leave a plain default on the class, so `getattr(cls, name)` works and
@@ -333,20 +345,12 @@ _collect_fields(Widget)
 
 
 def _groups(widget):
-    """The groups a widget is inside, innermost first: its panel, the panel the
-    Tabs holding that is in, and so on up to the view or popup."""
+    """What a widget is inside, innermost first: its panel (or Tabs), what that's in,
+    and so on up to the view or popup."""
     group = widget._group
     while group is not None:
         yield group
-        container = getattr(group, "_container", None)
-        group = container._group if container is not None else None
-
-
-def _containers(widget):
-    """The container widgets (like Tabs) a widget is inside, innermost first."""
-    for group in _groups(widget):
-        container = getattr(group, "_container", None)
-        if container is not None: yield container
+        group = getattr(group, "_group", None) # a view has none
 
 
 def _call(callback, *args):

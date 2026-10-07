@@ -37,8 +37,9 @@ view.confirm.yes.on_click(lambda: (view.log.clear(), view.confirm.close()))
 - Without a layout, a popup's widgets go one above the other in the order they're
   declared, so a popup with one widget is just `Popup(Menu(items))`.
 - `popup.copy()` makes a separate copy, to show the same kind of popup twice.
-- A popup is a [`Panel`](widgets.md#tabs) that floats, so it can hold anything a panel
-  can, including `Tabs`.
+- A popup is a [`Panel`](layouts.md#panels-in-a-layout) that floats, so it can hold
+  anything a panel can, including `Tabs`. While it's open, `popup.x`, `popup.y`,
+  `popup.width` and `popup.height` are where it is on screen, border included.
 
 ## Settings
 
@@ -51,7 +52,7 @@ As class attributes or constructor arguments:
 | `close_on_outside_click` | `False` | for a modal popup the click just closes it; otherwise it goes through too |
 | `keep_typing` | `False` | the focused text box keeps getting typed text, while arrows and Enter go to the popup (autocomplete, command menus) |
 | `border`, `title` | `True`, `None` | |
-| `width`, `height` | `None` | outer size; `None` fits the content |
+| `preferred_width`, `preferred_height` | `None` | the size inside the border, as for a widget (`40`, `"30+"`, `"20-40"`); `None` fits the content |
 
 Inside a popup, a widget's border title is only shown if you set its `title`.
 

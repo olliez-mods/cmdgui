@@ -18,7 +18,7 @@
 | `menu` | [`Menu`](#menu) | A list to pick from |
 | `tree` | [`Tree`](#tree) | Nested items that fold open |
 | `table` | [`Table`](#table) | Rows and columns |
-| `tabs` | [`Tabs`](#tabs) | Several panels in one place, with a bar to switch between them |
+| `tabs` | [`Tabs`](#tabs) | Several panels or widgets in one place, with a bar to switch between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
 | `log` | [`Log`](#log) | Log messages with levels in colour, filtering and search |
 | `graphics` | [`Graphics`](#graphics) | Draw in pixels: lines, shapes, curves |
@@ -377,7 +377,7 @@ class Profile(Panel):
 class Settings(Tabs):
     profile = Profile()
     options = Panel(Checkbox("debug mode"), title="Options")
-    log = Panel(Stdout())
+    log = Stdout()
 
 class App(View):
     layout = "settings \n status"
@@ -389,20 +389,19 @@ view.settings.profile.name.value     # typed in your editor, through the class a
 view.settings.show("log")
 ```
 
-A `Panel` is a layout of widgets, written exactly like a `View` subclass: a `layout`
-string and widgets as class attributes, or `Panel(layout, name=widget, ...)`. Without a
-layout, the widgets go one above the other in the order they're declared, so a panel
-with one widget is just `Panel(Stdout())`. Each panel is one tab.
+Each tab is a widget. Usually that's a [`Panel`](layouts.md#panels-in-a-layout), a
+layout of widgets written exactly like a `View` subclass, but a tab that's just one
+widget doesn't need one: `log = Stdout()`, and then `view.settings.log` is the widget.
 
-A `Tabs` holds panels, as class attributes of a subclass (each `Tabs` gets its own
-copies) or passed in: `Tabs(profile=Profile(), log=Stdout())`. A tab with a single
-widget doesn't need a panel: `log = Stdout()`, and then `view.settings.log` is the
-widget. The tab bar shows each panel's `title`, or its name.
+A `Tabs` holds its tabs as class attributes of a subclass (each `Tabs` gets its own
+copies) or passed in: `Tabs(profile=Profile(), log=Stdout())`. The tab bar shows each
+tab's `title`, or its name. `Tabs` is itself a kind of panel, so `view.settings["log"]`
+and `view.settings.get("log", Stdout)` work too.
 
 - Switch by clicking a tab, with left/right (and Home/End) while the bar is focused,
   or with **Ctrl+Page Up / Ctrl+Page Down** from any widget inside the tabs.
-- `show(name)`, `current` (the shown tab's name), `panel` (the shown `Panel`),
-  `panels` (all of them by name), `on_change(fn(name))`.
+- `show(name)`, `current` (the shown tab's name), `shown` (the shown tab's panel or
+  widget), `named` (all of them by name), `on_change(fn(name))`.
 - `view.settings.profile` is a panel, and `view.settings.profile.name` a widget in it.
 - Hidden tabs keep everything: what you typed, scroll positions, and the widget you
   were focused on, which gets focus back when you return. Printed text still reaches a

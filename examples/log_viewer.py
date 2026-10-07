@@ -5,7 +5,7 @@ import threading
 import time
 
 # A log viewer. Drag the lines between the controls, the log and the prints to resize them. Pick a level to hide the less important messages, and
-# type in the search box to find some. q to quit (when not typing).
+# type in the search box to find some. Ctrl+L locks the controls, Ctrl+B hides them. q to quit (when not typing).
 
 class Controls(Panel):
     layout = """
@@ -33,6 +33,10 @@ class App(View):
 view = App()
 view.adjustable(view.controls, [view.log, view.prints], position=24)  # the controls are 24 wide
 view.adjustable(view.log, view.prints, position=-6)                   # prints keep 6 rows, the log gets the rest
+
+# A panel is a widget, so it can be disabled or hidden like one, and everything in it goes with it
+view.on_key("ctrl+l", lambda: view.controls.set(enabled=not view.controls.enabled))     # greyed out, no clicks or typing
+view.on_key("ctrl+b", lambda: view.controls.set(visible=not view.controls.visible))  # the log takes the room
 
 # Python's logging goes to the Log widget, from any thread
 logger = logging.getLogger("worker")
