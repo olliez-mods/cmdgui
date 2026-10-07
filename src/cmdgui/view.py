@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import _thread
 import atexit
+import collections
 import os
 import re
 import signal
@@ -170,6 +171,8 @@ class View(Group):
         self._laid_out_size = None # the size the layout was last worked out for
         self._line_hover = None # (group, edge index) of the draggable line under the mouse
         self._line_drag = None  # the same, for the one being dragged
+        self._queue = collections.deque() # inputs read but not handled yet
+        self._generation = 0 # goes up when a dialog finishes, so input from before it is stale
         self._top = 0        # the screen row an inline view starts on
         self._rows = 0       # how many rows an inline view has
         self._pending = {"stdout": "", "stderr": ""} # printed text with no newline yet (inline)
@@ -270,6 +273,81 @@ class View(Group):
                       title=title, on_close=on_close)
         ok.on_click(popup.close)
         return self.show(popup)
+
+    # --- Dialogs that wait for an answer ---
+
+    def confirm(self, message: str, title: Optional[str] = None,
+                yes: str = "OK", no: str = "Cancel") -> bool:
+        """Ask a yes/no question and wait for the answer: True for yes, False for no or
+        Escape. Works from your own code and from callbacks (the view keeps running
+        while it waits):
+
+            if view.confirm("Delete notes.txt?", yes="Delete"):
+                os.remove("notes.txt")"""
+        answer = []
+        popup = Popup("message - \n yes no", message=Text(message, align="center"),
+                      yes=Button(yes), no=Button(no), title=title)
+        popup.yes.on_click(lambda: (answer.append(True), popup.close()))
+        popup.no.on_click(popup.close)
+        self._wait_for(popup)
+        return bool(answer)
+
+    def prompt(self, message: str, value: str = "", title: Optional[str] = None,
+               placeholder: str = "", password: bool = False) -> Optional[str]:
+        """Ask for some text and wait for it: what was typed, or None if cancelled.
+        value is the text to start with.
+
+            name = view.prompt("Rename to:", value=old_name)
+            if name: ..."""
+        answer = []
+        def ok():
+            answer.append(popup.input.value)
+            popup.close()
+        popup = Popup("message - \n input - \n ok cancel", message=Text(message),
+                      input=TextInput(value, placeholder=placeholder, password=password, cursor=len(value),
+                                      border=True, preferred_width="30+", on_submit=lambda _: ok()),
+                      ok=Button("OK", on_click=ok), cancel=Button("Cancel"), title=title)
+        popup.cancel.on_click(popup.close)
+        self._wait_for(popup)
+        return answer[0] if answer else None
+
+    def choose(self, items: list, message: Optional[str] = None, title: Optional[str] = None,
+               selected: int = 0) -> Any:
+        """Ask for one of a list of items and wait for it: the item picked (with Enter
+        or a click), or None if cancelled.
+
+            editor = view.choose(["vim", "nano", "code"], "Open with:")"""
+        answer = []
+        def pick(index, item):
+            answer.append(item)
+            popup.close()
+        menu = Menu(items, selected=selected, on_select=pick)
+        if message is None:
+            popup = Popup("menu", menu=menu, title=title)
+        else:
+            popup = Popup("message \n menu", message=Text(message), menu=menu, title=title)
+        self._wait_for(popup)
+        return answer[0] if answer else None
+
+    def _wait_for(self, popup):
+        """Show a popup and return once it's closed (or the view stops)."""
+        closed = threading.Event()
+        popup.on_close(closed.set)
+        popup._dialog = True
+        self.show(popup)
+        if threading.current_thread() is not self.thread:
+            while self.running and not closed.wait(0.05): # your own code: just wait
+                pass
+            return
+        # In a callback, on the view's own thread: keep the view going from here until it
+        # closes. The lock is let go meanwhile, so other threads can still use the view.
+        saved = self.lock._release_save() if self.lock._is_owned() else None
+        try:
+            while self.running and not closed.is_set():
+                self._step()
+        finally:
+            if saved is not None: self.lock._acquire_restore(saved)
+            self._generation += 1 # the input that opened it is old news now
 
     def _close(self, popup):
         with self.lock:
@@ -583,21 +661,30 @@ class View(Group):
     def _input_loop(self):
         while self.running:
             try:
-                size = self._screen_area()
-                if size != self.size:
-                    self.size = size
-                    self._relayout = True
-                for input in inputs.read_inputs(timeout=self._sleep_time()):
-                    with self.lock:
-                        if not self.running: return
-                        self._dispatch(input)
-                self._run_timers()
-                self._render()
+                self._step()
             except Exception:
                 traceback.print_exc() # goes to the captured stderr, shown after the view closes
                 self._exit_code = 1
                 self.quit()
                 return
+
+    def _step(self):
+        """One go round the loop: notice a resize, handle input, run timers and draw.
+        A dialog opened from a callback runs this too, until it's answered."""
+        size = self._screen_area()
+        if size != self.size:
+            self.size = size
+            self._relayout = True
+        # Inputs go through a queue, so ones read before a dialog opened are handled
+        # (by the dialog's loop) before newer ones
+        self._queue.extend(inputs.read_inputs(timeout=0 if self._queue else self._sleep_time()))
+        while self._queue:
+            input = self._queue.popleft()
+            with self.lock:
+                if not self.running: return
+                self._dispatch(input)
+        self._run_timers()
+        self._render()
 
     def _dispatch(self, input):
         if self.inline and input.type.startswith("mouse"):
@@ -631,8 +718,8 @@ class View(Group):
                     return
             if focused and focused.captures_text and char:
                 focused.on_input(input) # typing into a text box beats key bindings
-            elif key in self.bindings:
-                self.bindings[key]()
+            elif key in self.bindings and not (key != self.quit_key and any(p._dialog for p in self.popups)):
+                self.bindings[key]() # not while a dialog waits for an answer, except to quit
             elif key == "ctrl+c":
                 self._interrupt()
             elif key in ("tab", "shift_tab"):
@@ -664,7 +751,9 @@ class View(Group):
                     if widget.can_focus and widget.mouse_over() and not keeps_typing:
                         self.focus(widget)
                         break
+            generation = self._generation
             for widget in active:
+                if self._generation != generation: break # a dialog came and went: the click was for it
                 if widget._usable: widget.on_input(input)
             return
 

@@ -455,6 +455,7 @@ class Popup(Panel):
     keep_typing: bool = False             # the focused text box keeps getting typed text; arrows and Enter come here
     border = True
     close_callback: Optional[Callable[[], Any]] = None
+    _dialog = False # from view.confirm() and the like: key bindings wait until it's answered
 
     def __init__(self, layout: Union[str, Widget, None] = None, *,
                  modal: Optional[bool] = None, close_on_escape: Optional[bool] = None,

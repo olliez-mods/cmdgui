@@ -41,6 +41,34 @@ view.confirm.yes.on_click(lambda: (view.log.clear(), view.confirm.close()))
   anything a panel can, including `Tabs`. While it's open, `popup.x`, `popup.y`,
   `popup.width` and `popup.height` are where it is on screen, border included.
 
+## Asking a question
+
+These show a dialog and wait for the answer, so you get it back like a function's result:
+
+```python
+if view.confirm("Delete notes.txt?", yes="Delete"):    # True, or False for Cancel/Escape
+    os.remove("notes.txt")
+
+name = view.prompt("Rename to:", value="notes.txt")    # the text, or None if cancelled
+app = view.choose(["vim", "nano", "less"], "Open with:")  # the item picked, or None
+```
+
+| | Returns | Options |
+|---|---|---|
+| `confirm(message)` | `True` / `False` | `title`, `yes="OK"`, `no="Cancel"` |
+| `prompt(message)` | the text / `None` | `value` (to start with), `title`, `placeholder`, `password` |
+| `choose(items)` | the item / `None` | `message`, `title`, `selected` (the index to start on) |
+
+They work from anywhere:
+
+- From your own code, they wait while the view keeps running.
+- From a callback (a button's `on_click`, a key binding, a timer), they wait too: the view
+  keeps handling input and drawing until the dialog is answered, then your callback
+  carries on. There's no need to split your code into "ask" and "on answer" parts.
+
+While one is open, your key bindings wait (except the quit key), so a key can't open a
+second dialog on top of the first. `examples/dialogs.py` uses all three.
+
 ## Settings
 
 As class attributes or constructor arguments:
@@ -59,4 +87,5 @@ Inside a popup, a widget's border title is only shown if you set its `title`.
 ## Examples
 
 - `examples/popups.py`: a dialog and a dropdown
+- `examples/dialogs.py`: `confirm`, `prompt` and `choose`, from your code and from callbacks
 - `examples/simple_console.py`: a `/` command menu that opens while you type, using `keep_typing`

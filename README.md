@@ -67,7 +67,8 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
   pasting in one go, and dim hints before, after and ahead of the cursor for autocomplete.
 - **Inline views**: draw in a few rows under the prompt instead of the whole screen, with
   printed text scrolling above.
-- **Popups**: dialogs, dropdowns and command menus that float over the layout.
+- **Popups**: dialogs, dropdowns and command menus that float over the layout, and
+  questions that wait for the answer: `if view.confirm("Delete it?"): ...`
 - **Mouse and keyboard**: clicks, dragging, the scroll wheel, Tab between widgets, and
   your own key bindings.
 - **Timers**: `view.every(1, tick)` and `view.after(5, fn)`, no threads needed.
@@ -86,5 +87,6 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 - [Your own widgets](https://github.com/olliez-mods/cmdgui/blob/main/docs/custom-widgets.md)
 
 The [examples](https://github.com/olliez-mods/cmdgui/tree/main/examples) folder has a
-widget demo, a dashboard, popups, tabs, a console, a file browser, pixel graphics, a
-log viewer with draggable lines, date pickers, and an inline progress display.
+widget demo, a dashboard, popups, dialogs that wait for an answer, tabs, a console, a
+file browser, pixel graphics, a log viewer with draggable lines, date pickers, and an
+inline progress display.

@@ -14,7 +14,9 @@ view.on_key("ctrl+s", save)
 view.on_key("ctrl+s", None)   # remove it
 ```
 
-A binding runs when its key is pressed, unless a focused text box takes it as typing.
+A binding runs when its key is pressed, unless a focused text box takes it as typing, or
+a dialog from `view.confirm()`, `prompt()` or `choose()` is waiting for an answer (the quit
+key still works then).
 Key names:
 
 - letters and symbols as typed: `a`, `A`, `+`
