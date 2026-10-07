@@ -1,7 +1,8 @@
 # Keys and focus
 
 - **Tab** / **Shift+Tab** or a click moves focus between widgets that take input.
-  Disabled widgets (`enabled=False`) are skipped.
+  Disabled and hidden widgets are skipped, and so are widgets with `tab_stop=False`
+  (`-f` in the layout), though a click still focuses those.
 - Key presses go to the focused widget; typed characters go to a focused text box first.
 - `view.focus(widget)` focuses a widget from code, `view.focus(None)` removes focus,
   and `view.focused` is the focused widget (or `None`).

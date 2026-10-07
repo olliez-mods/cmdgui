@@ -28,6 +28,26 @@ LINE_CHARS = {
     UP | DOWN | LEFT | RIGHT: "┼",
 }
 
+def _line_table(chars):
+    """LINE_CHARS for a border style, from its ─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼."""
+    h, v, dr, dl, ur, ul, vr, vl, hd, hu, cross = chars
+    return {LEFT: h, RIGHT: h, LEFT | RIGHT: h, UP: v, DOWN: v, UP | DOWN: v,
+            DOWN | RIGHT: dr, DOWN | LEFT: dl, UP | RIGHT: ur, UP | LEFT: ul,
+            UP | DOWN | RIGHT: vr, UP | DOWN | LEFT: vl, DOWN | LEFT | RIGHT: hd, UP | LEFT | RIGHT: hu,
+            UP | DOWN | LEFT | RIGHT: cross}
+
+# Joined-up line characters for each border style. Where styles meet, the one ranked
+# higher is used for the junction (a rounded corner can't join anything, so it's
+# rounded only at the corners themselves).
+LINE_STYLES = {
+    "single":  LINE_CHARS,
+    "rounded": _line_table("─│╭╮╰╯├┤┬┴┼"),
+    "heavy":   _line_table("━┃┏┓┗┛┣┫┳┻╋"),
+    "double":  _line_table("═║╔╗╚╝╠╣╦╩╬"),
+    "ascii":   _line_table("-|+++++++++"),
+}
+STYLE_RANK = {"ascii": 0, "single": 1, "rounded": 2, "heavy": 3, "double": 4}
+
 # The basic colors (and 'bright_' versions) use the terminal's own palette, so
 # they match the user's theme
 COLORS = {

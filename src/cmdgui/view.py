@@ -43,15 +43,20 @@ def teardown(inline=False, stderr_shown=0):
         sys.stderr.flush()
 
 
-def _draw_borders(canvas, frames, titles, focused, theme, gaps=None):
+def _draw_borders(canvas, frames, titles, focused, theme, gaps=None, styles=None):
     """Draw every border at once, so shared edges are one line and meeting
     lines get the right junction (├ ┬ ┼ ...). The focused frame is drawn in
     the focus colour. titles: frame key -> title (or None). gaps: (x, y) ->
-    directions to leave out there, e.g. the opening under an active tab."""
+    directions to leave out there, e.g. the opening under an active tab.
+    styles: frame key -> border style ("single" if missing)."""
     links = {} # (x, y) -> directions that cell connects to
+    kinds = {} # (x, y) -> the border style drawn there, the highest ranked of the frames on it
     def link(x, y, direction):
         links[(x, y)] = links.get((x, y), 0) | direction
-    for x, y, w, h in frames.values():
+        if STYLE_RANK[kind] > STYLE_RANK[kinds.get((x, y), "ascii")] or (x, y) not in kinds:
+            kinds[(x, y)] = kind
+    for key, (x, y, w, h) in frames.items():
+        kind = (styles or {}).get(key) or "single"
         right, bottom = x + w - 1, y + h - 1
         for cx in range(x, right):
             for cy in (y, bottom):
@@ -66,7 +71,7 @@ def _draw_borders(canvas, frames, titles, focused, theme, gaps=None):
             links[cell] &= ~directions
             if not links[cell]: del links[cell]
     for (x, y), directions in links.items():
-        canvas.put(x, y, LINE_CHARS[directions], theme["border"])
+        canvas.put(x, y, LINE_STYLES[kinds[(x, y)]][directions], theme["border"])
 
     def restyle(x, y, s):
         if 0 <= x < canvas.width and 0 <= y < canvas.height:
@@ -169,6 +174,8 @@ class Group():
             elif slot.type is not None and not isinstance(widget, WIDGET_TYPES[slot.type]):
                 raise LayoutError(f"the layout says '{name}' is a {slot.type}, "
                                   f"but it was given a {type(widget).__name__}")
+            for attr, value in (slot.flags or {}).items():
+                setattr(widget, attr, value) # the layout's flags, like {+b,w=20}
             widget.name = name
             widget._group = self
             self.widgets.append(widget)
@@ -205,9 +212,10 @@ class Group():
         """Work out where the widgets go in a width x height box (positions relative to it).
         fit_content: grow widgets to their content_size(); outer: leave room for a border around it all."""
         sizes, borders = {}, {}
+        hidden = {name for name, widget in self.named.items() if not widget.visible}
         for name, widget in self.named.items():
-            slot_border = self.grid.slots[name].border
-            borders[name] = widget.border if slot_border is None else slot_border
+            if name in hidden: continue
+            borders[name] = widget.border
             need_w, need_h = widget._needed_size(fit_content, borders[name]) # containers: what their panels need
             if fit_content:
                 content_w, content_h = widget.content_size()
@@ -218,7 +226,7 @@ class Group():
                 sizes[name] = (_spec(widget.preferred_width, need_w), _spec(widget.preferred_height, need_h))
             else:
                 sizes[name] = (widget.preferred_width, widget.preferred_height)
-        return place(self.grid, width, height, sizes, borders, outer=outer)
+        return place(self.grid, width, height, sizes, borders, outer=outer, hidden=hidden)
 
 
 class Panel(Group):
@@ -237,6 +245,7 @@ class Panel(Group):
     Panel(Menu(items)). Popup is a panel that floats over the view."""
     _kind = "panel"
     border: bool = False         # draw a border around the whole panel (Tabs and Popup decide this themselves)
+    border_style: Optional[str] = None # how that border looks; None for the container's or the view's
     title: Optional[str] = None  # the tab's name in a Tabs, or the popup's border title
 
     def __init__(self, layout: Union[str, Widget, None] = None, *,
@@ -295,11 +304,12 @@ class Panel(Group):
             # Clip to the inside of the box, in case it's too small
             rw = max(0, min(rw, w - inner - rx))
             rh = max(0, min(rh, h - inner - ry))
-            if (widget.x, widget.y, widget.width, widget.height) != (x + rx, y + ry, rw, rh):
+            moved = (widget.x, widget.y, widget.width, widget.height) != (x + rx, y + ry, rw, rh)
+            if moved:
                 widget.x, widget.y, widget.width, widget.height = x + rx, y + ry, rw, rh
                 widget._dirty = True
-                widget._arrange_children()
-                widget.on_resize()
+            widget._arrange_children() # even at the same size: something inside may have been hidden or shown
+            if moved: widget.on_resize()
 
     def _contains(self, x, y):
         return self.x <= x < self.x + self.w and self.y <= y < self.y + self.h
@@ -380,12 +390,16 @@ class View(Group):
 
     copy_on_select: text selected with the mouse in a text box is copied straight
     away, for terminals that keep Cmd+C to themselves (all of them on macOS).
+
+    border_style: how borders look, unless a widget has its own: "single",
+    "rounded", "heavy", "double" or "ascii".
     """
     _kind = "view"
 
     def __init__(self, layout: Optional[str] = None, theme: Optional[dict] = None,
                  quit_key: Optional[str] = "q", inline: Union[bool, int] = False,
-                 keep_on_exit: bool = True, copy_on_select: bool = False, **widgets: Widget):
+                 keep_on_exit: bool = True, copy_on_select: bool = False,
+                 border_style: str = "single", **widgets: Widget):
         self.lock = threading.RLock() # reentrant, so widgets can call view methods while handling input
         self.running = False
         self.thread = None
@@ -408,6 +422,9 @@ class View(Group):
         self.inline = inline
         self.keep_on_exit = keep_on_exit
         self.copy_on_select = copy_on_select
+        if border_style not in LINE_STYLES:
+            raise ValueError(f"unknown border style {border_style!r} (use {', '.join(LINE_STYLES)})")
+        self.border_style = border_style # for borders without a style of their own
         self._top = 0        # the screen row an inline view starts on
         self._rows = 0       # how many rows an inline view has
         self._pending = {"stdout": "", "stderr": ""} # printed text with no newline yet (inline)
@@ -530,9 +547,10 @@ class View(Group):
 
     @staticmethod
     def _walk(widgets, hidden=False):
-        """The widgets, each followed by the widgets in its shown panels (all its
-        panels if hidden=True), all the way down."""
+        """The widgets being shown, each followed by the widgets in its shown panels,
+        all the way down. hidden=True: every widget, hidden ones and all panels too."""
         for widget in widgets:
+            if not hidden and not widget.visible: continue
             yield widget
             for panel in (widget._panels() if hidden else widget._visible_panels()):
                 yield from View._walk(panel.widgets, hidden)
@@ -620,7 +638,7 @@ class View(Group):
     def focus_next(self, step: int = 1) -> None:
         """Move focus to the next (or previous, step=-1) focusable widget."""
         with self.lock:
-            focusable = [w for w in self._active_widgets() if w.can_focus]
+            focusable = [w for w in self._active_widgets() if w.can_focus and w.tab_stop]
             if not focusable: return
             if self.focused in focusable:
                 index = (focusable.index(self.focused) + step) % len(focusable)
@@ -1010,13 +1028,22 @@ class View(Group):
                     titles[key] = key.title or key.name
         popup = layer if isinstance(layer, Popup) else None
         focused = self.focused if self.focused is not None and self.focused._popup is popup else None
-        _draw_borders(canvas, frames, titles, focused, self.theme, gaps)
+        styles = {key: self._border_style(key) for key in frames}
+        _draw_borders(canvas, frames, titles, focused, self.theme, gaps, styles)
         for group in self._layer_groups(layer):
             for widget in group.widgets:
                 for (x, y), (char, s) in widget._border_marks().items():
                     if not (0 <= x < canvas.width and 0 <= y < canvas.height): continue
                     if char and canvas.chars[y][x] in ("│", "─"): canvas.chars[y][x] = char
                     canvas.styles[y][x] = s
+
+    def _border_style(self, key):
+        """A frame's border style: its own, or for a panel its container's (a split's
+        panels are drawn as its border), or else the view's."""
+        style = getattr(key, "border_style", None)
+        container = getattr(key, "_container", None)
+        if style is None and container is not None: style = container.border_style
+        return style or self.border_style
 
     def _draw_too_small(self, need_w, need_h):
         width, height = self.size

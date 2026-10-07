@@ -31,9 +31,15 @@ Every widget takes these, as constructor arguments or attributes:
 | | |
 |---|---|
 | `border` | draw a border around it (see [Layouts](layouts.md#borders)) |
+| `border_style` | `"single"`, `"rounded"`, `"heavy"`, `"double"` or `"ascii"`; `None` for the view's (see [border styles](layouts.md#border-styles)) |
 | `title` | the border title, instead of the widget's name |
 | `preferred_width`, `preferred_height` | see [Layouts](layouts.md#sizes) |
 | `enabled` | `False` greys it out: it can't be focused and ignores clicks and keys |
+| `visible` | `False` hides it, and the layout closes up around it (see [hiding widgets](layouts.md#hiding-widgets)) |
+| `tab_stop` | `False`: Tab skips it, though a click still focuses it |
+
+Most of these can also be set from the layout string with [flags](layouts.md#flags):
+`log{-b,h=6}`.
 
 The first positional argument is the main content: `Label("text")`, `Menu(items)`,
 `Table(columns)`, `ProgressBar(0.5)`. Callbacks can be passed in (`on_click=fn`) or set
@@ -416,7 +422,7 @@ widget. The tab bar shows each panel's `title`, or its name.
   │your name             │you@example.com│
   ```
 
-  `border=False` (or `{nb}` in the layout) gives a plain row of tab names instead, with
+  `border=False` (or `{-b}` in the layout) gives a plain row of tab names instead, with
   no box or border.
 
 Tabs can go inside panels (tabs within tabs) and inside popups. See

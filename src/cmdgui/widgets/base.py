@@ -17,6 +17,7 @@ else:
 # A size: 5 or "5" exactly, "5+" at least 5, "5-10" between, None for any size
 Size = Union[int, str, None]
 Align = Literal["left", "center", "right"]
+BorderStyle = Literal["single", "rounded", "heavy", "double", "ascii"]
 W = TypeVar("W", bound="Widget")
 
 _MISSING = object()
@@ -79,9 +80,9 @@ DEFAULT_THEME = {
 }
 
 # Changing these means the layout has to be worked out again
-LAYOUT_ATTRS = {"preferred_width", "preferred_height", "border"}
+LAYOUT_ATTRS = {"preferred_width", "preferred_height", "border", "visible"}
 # Changing these means the borders have to be drawn again
-BORDER_ATTRS = {"title"}
+BORDER_ATTRS = {"title", "border_style"}
 # Set by the view, so changing them shouldn't trigger a redraw
 POSITION_ATTRS = {"x", "y", "width", "height", "name", "view"}
 
@@ -98,9 +99,12 @@ class Widget(_FieldWidget):
     # assigning it, e.g. `border = True`.
     preferred_width: Size = None  # sizes of the content, not counting the border
     preferred_height: Size = None
-    border: bool = False          # drawn by the view; {b} / {nb} in the layout overrides this
+    border: bool = False          # drawn by the view; {+b} / {-b} in the layout sets it
+    border_style: Optional[BorderStyle] = None # "single", "rounded", "heavy", "double", "ascii"; None for the view's
     title: Optional[str] = None   # shown in the border, defaults to the widget's name
     enabled: bool = True          # False greys it out and ignores the mouse and keyboard
+    visible: bool = True          # False hides it, and the layout closes up the space it took
+    tab_stop: bool = True         # False: Tab skips it (a click can still focus it)
 
     # Class settings (not constructor arguments)
     type_name = None      # name used in layouts, defaults to the class name in snake_case
@@ -191,6 +195,8 @@ class Widget(_FieldWidget):
         def __setattr__(self, key, value):
             # Changing any public attribute redraws the widget, so `button.text = "Go"` just works.
             # Mutating a list in place (self.items.append) doesn't, call self.refresh() for that.
+            if key == "border_style" and value not in (None, *BORDERS):
+                raise ValueError(f"unknown border style {value!r} (use {', '.join(BORDERS)})")
             object.__setattr__(self, key, value)
             if key.startswith("_") or not self.__dict__.get("_ready") or key in POSITION_ATTRS:
                 return
@@ -200,10 +206,10 @@ class Widget(_FieldWidget):
                 if self.view: self.view._redraw_borders()
             else:
                 self.refresh()
-            if key == "enabled": self._drop_focus()
+            if key in ("enabled", "visible"): self._drop_focus()
 
     def _drop_focus(self):
-        if not self.enabled and self.focused: self.view.focus(None)
+        if not (self.enabled and self.visible) and self.focused: self.view.focus(None)
 
     @property
     def focused(self):
@@ -211,8 +217,8 @@ class Widget(_FieldWidget):
 
     @property
     def can_focus(self):
-        """True if Tab or a click can focus this widget right now."""
-        return self.focusable and self.enabled
+        """True if a click (or Tab, with tab_stop) can focus this widget right now."""
+        return self.focusable and self.enabled and self.visible
 
     def theme(self, key):
         """A style from the view's theme."""

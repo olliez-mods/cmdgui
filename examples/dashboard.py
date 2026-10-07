@@ -5,6 +5,7 @@
 Arrows / click     pick a service           d  deploy      r  restart
 Tab                move between widgets     s  scale       i  cause an incident
 /                  command palette          ?  help        q  quit
+c                  hide or show the charts (the log takes their space)
 Click a header     sort the fleet table (again to reverse), or 1-8 while it's focused
 
 Everything visual lives in the classes below. The bottom of the file is
@@ -265,7 +266,7 @@ class Palette(Popup):
 
 
 HELP = (__doc__ or "").split("\n\n")[2] + ("\n\n[bold]Commands[/] [dim](type / in the command line, Tab completes)[/]\n"
-                                           "deploy · restart · scale · incident · heal · clear · help · quit")
+                                           "deploy · restart · scale · incident · heal · charts · clear · help · quit")
 
 class Help(Popup):
     title = "Help"
@@ -335,6 +336,7 @@ COMMANDS = {
     "scale":    "change the number of replicas",
     "incident": "take a random service down",
     "heal":     "toggle auto-heal",
+    "charts":   "hide or show the charts",
     "clear":    "clear the log",
     "help":     "show keys and commands",
     "quit":     "leave Mission Control",
@@ -407,11 +409,20 @@ def run_command(item):
         "scale": lambda: view.show(view.scale_menu, below=view.scale),
         "incident": incident,
         "heal": lambda: view.heal.toggle(),
+        "charts": toggle_charts,
         "clear": view.log.clear,
         "help": lambda: view.show(view.help),
         "quit": view.quit,
     }
     actions[name]()
+
+def toggle_charts():
+    """Hide or show the three charts. They're the only widgets in their row, so the row
+    closes up and the log below grows into the space."""
+    shown = not view.cpu.visible
+    for chart in (view.cpu, view.mem, view.rps):
+        chart.visible = shown
+    log("info", "console", "charts shown" if shown else "charts hidden (c to show them again)")
 
 def incident():
     victims = [s for s in SERVICES if s.status in ("up", "degraded")]
@@ -523,6 +534,7 @@ view.on_key("d", lambda: view.deploy_dialog.open(view, selected()))
 view.on_key("r", ask_restart)
 view.on_key("s", lambda: view.show(view.scale_menu, below=view.scale))
 view.on_key("i", incident)
+view.on_key("c", toggle_charts)
 view.on_key("?", lambda: view.show(view.help))
 view.on_key("/", lambda: (view.focus(view.command), view.command.set(value="/", cursor=1), command_typed("/")))
 view.focus(view.services)

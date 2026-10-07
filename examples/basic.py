@@ -2,9 +2,9 @@ from cmdgui import View
 import time
 
 view = View("""
-    button[start]{b}  button[pause]{nb} . . . draw_mouse[canvas] - - -
-    stdout[out]       -                - - - |                  - - -
-    |                 -                - - - |                  - - -
+    button[start]{+b} button[pause]{-b} . . . draw_mouse[canvas]{b=rounded} - - -
+    stdout[out]       -                 - - - |                             - - -
+    |                 -                 - - - |                             - - -
 """)
 
 running = True
