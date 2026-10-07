@@ -17,6 +17,7 @@ def delete():
         view.files.selected = max(0, min(view.files.selected, len(view.files.items) - 1))
         view.files.refresh()  # the list was changed in place
         print(f"deleted {name}")
+        view.notify(f"Deleted [bold]{name}[/]", "ok")  # a notification in the corner
     else:
         print(f"kept {name}")
 
@@ -28,6 +29,7 @@ def rename():
         view.files.items[view.files.selected] = new
         view.files.refresh()
         print(f"renamed {name} to {new}")
+        view.notify(f"Renamed to [bold]{new}[/]", "ok")
 
 def open_with():
     name = selected()

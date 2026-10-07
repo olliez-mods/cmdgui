@@ -77,6 +77,10 @@ DEFAULT_THEME = {
     "log_error": style(fg="red", bold=True),
     "log_critical": style(fg="white", bg="red", bold=True),
     "match": style(fg="black", bg="yellow"),   # text matching a Log's search
+    "toast_info": style(fg="cyan"),            # the border and icon of a view.notify() message
+    "toast_ok": style(fg="green"),
+    "toast_warning": style(fg="yellow", bold=True),
+    "toast_error": style(fg="red", bold=True),
 }
 
 # Changing these means the layout has to be worked out again

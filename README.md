@@ -68,7 +68,8 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 - **Inline views**: draw in a few rows under the prompt instead of the whole screen, with
   printed text scrolling above.
 - **Popups**: dialogs, dropdowns and command menus that float over the layout, and
-  questions that wait for the answer: `if view.confirm("Delete it?"): ...`
+  questions that wait for the answer: `if view.confirm("Delete it?"): ...`, and
+  notifications in the corner: `view.notify("Saved", "ok")`.
 - **Mouse and keyboard**: clicks, dragging, the scroll wheel, Tab between widgets, and
   your own key bindings.
 - **Timers**: `view.every(1, tick)` and `view.after(5, fn)`, no threads needed.

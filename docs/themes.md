@@ -40,6 +40,7 @@ view = View("...", theme={
 | `today` | today's date in a `Calendar` | bold, underlined |
 | `log_debug`, `log_info`, `log_warning`, `log_error`, `log_critical` | the level names in a `Log` | bright black, cyan, bold yellow, bold red, bold white on red |
 | `match` | text matching a `Log`'s search | black on yellow |
+| `toast_info`, `toast_ok`, `toast_warning`, `toast_error` | the border and icon of a [notification](popups.md#notifications) | cyan, green, bold yellow, bold red |
 | `disabled` | replaces every style in a disabled widget | bright black |
 
 The defaults are in `DEFAULT_THEME`. Your own widgets can add keys and read them with

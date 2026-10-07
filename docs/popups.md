@@ -69,6 +69,23 @@ They work from anywhere:
 While one is open, your key bindings wait (except the quit key), so a key can't open a
 second dialog on top of the first. `examples/dialogs.py` uses all three.
 
+## Notifications
+
+`view.notify()` shows a short message in the bottom right corner for a few seconds:
+
+```python
+view.notify("Saved [bold]notes.txt[/]", "ok")
+view.notify("Couldn't reach the server", "error", seconds=None)  # stays until clicked
+```
+
+- Levels: `"info"` (the default), `"ok"`, `"warning"` and `"error"`, each with its own icon
+  and colour (the `toast_...` [theme](themes.md) keys).
+- `seconds` is how long it stays (3 by default); `None` keeps it until it's clicked.
+  Clicking one closes it early.
+- It floats over everything but doesn't take focus or block anything. Newer ones go at
+  the bottom and push older ones up; at most 5 show at once.
+- It returns a `Toast`: `toast.close()`, `toast.is_open`. Safe to call from any thread.
+
 ## Settings
 
 As class attributes or constructor arguments:
@@ -86,6 +103,8 @@ Inside a popup, a widget's border title is only shown if you set its `title`.
 
 ## Examples
 
-- `examples/popups.py`: a dialog and a dropdown
-- `examples/dialogs.py`: `confirm`, `prompt` and `choose`, from your code and from callbacks
+- `examples/popups.py`: a dialog, a dropdown, and a Notify button that cycles through the
+  notification levels
+- `examples/dialogs.py`: `confirm`, `prompt` and `choose`, from your code and from
+  callbacks, with notifications for what they did
 - `examples/simple_console.py`: a `/` command menu that opens while you type, using `keep_typing`

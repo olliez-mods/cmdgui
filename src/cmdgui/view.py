@@ -24,6 +24,10 @@ P = TypeVar("P", bound="Popup")
 # With keep_typing, these keys go to the popup instead of the focused text box
 POPUP_KEYS = {"up", "down", "page_up", "page_down", "enter"}
 
+# view.notify() levels, and the icon each one shows
+TOAST_ICONS = {"info": "●", "ok": "✔", "warning": "▲", "error": "✖"}
+MAX_TOASTS = 5
+
 # Escape codes in printed text, left out when working out how wide it is
 ANSI_CODE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 
@@ -116,6 +120,24 @@ class Timer:
         self._cancelled = True
 
 
+class Toast:
+    """A short message in the corner of the screen, from view.notify(). It goes by itself
+    after a few seconds, or when it's clicked; close() takes it away sooner."""
+    def __init__(self, view: "View", message: str, level: str):
+        self.message, self.level = message, level
+        self._view = view
+        self._timer: Optional[Timer] = None
+        self._rect: Optional[tuple[int, int, int, int]] = None # where it was drawn last
+
+    @property
+    def is_open(self) -> bool:
+        return self in self._view._toasts
+
+    def close(self) -> None:
+        """Take it away now (does nothing if it's gone already)."""
+        self._view._close_toast(self)
+
+
 class View(Group):
     """A terminal GUI. Three ways to fill it, which can be mixed:
 
@@ -172,6 +194,7 @@ class View(Group):
         self._line_hover = None # (group, edge index) of the draggable line under the mouse
         self._line_drag = None  # the same, for the one being dragged
         self._queue = collections.deque() # inputs read but not handled yet
+        self._toasts: list[Toast] = [] # from notify(), oldest first
         self._generation = 0 # goes up when a dialog finishes, so input from before it is stale
         self._top = 0        # the screen row an inline view starts on
         self._rows = 0       # how many rows an inline view has
@@ -273,6 +296,60 @@ class View(Group):
                       title=title, on_close=on_close)
         ok.on_click(popup.close)
         return self.show(popup)
+
+    # --- Notifications ---
+
+    def notify(self, message: str, level: str = "info", seconds: Optional[float] = 3) -> Toast:
+        """Show a short message in the bottom right corner, over everything, for a few
+        seconds: view.notify("Saved"), view.notify("Couldn't connect", "error").
+        level: "info", "ok", "warning" or "error", for the icon and colour. seconds=None
+        keeps it until it's clicked. It doesn't take focus or block anything, and newer
+        ones stack below older ones. Safe to call from any thread."""
+        if level not in TOAST_ICONS:
+            raise ValueError(f"unknown level {level!r} (use {', '.join(TOAST_ICONS)})")
+        toast = Toast(self, message, level)
+        with self.lock:
+            self._toasts.append(toast)
+            for old in self._toasts[:-MAX_TOASTS]: old.close()
+            if seconds is not None: toast._timer = self.after(seconds, toast.close)
+            self._redraw_base = True
+        self._wake()
+        return toast
+
+    def _close_toast(self, toast):
+        with self.lock:
+            if toast not in self._toasts: return
+            self._toasts.remove(toast)
+            if toast._timer: toast._timer.cancel()
+            self._redraw_base = True
+        self._wake()
+
+    def _draw_toasts(self, screen):
+        """The notifications, newest at the bottom right, older ones above."""
+        width, height = self.size
+        inner = max(4, min(44, width - 8)) # room for the text
+        kind = "ascii" if self.border_style == "ascii" else "rounded"
+        bottom = height - 1 # one row up from the bottom, so the layout's edge shows
+        for toast in self._toasts: toast._rect = None
+        for toast in reversed(self._toasts):
+            plain, styles = parse_markup(str(toast.message), self.theme.get("text", ""))
+            rows = wrap_spans(plain, inner)
+            w = max(text_width(plain[start:end]) for start, end in rows) + 6 # border, padding, icon
+            h = len(rows) + 2
+            x, y = max(0, width - w - 2), bottom - h
+            if y < 0: break
+            edge = self.theme.get(f"toast_{toast.level}", "")
+            screen.fill(x, y, w, h)
+            screen.border(x, y, w, h, kind, edge)
+            screen.put(x + 2, y + 1, TOAST_ICONS[toast.level], edge)
+            for i, (start, end) in enumerate(rows):
+                screen.styled(x + 4, y + 1 + i, plain[start:end], styles[start:end], width=w - 5)
+            toast._rect = (x, y, w, h)
+            bottom = y
+
+    def _toast_at(self, x, y):
+        return next((t for t in self._toasts if t._rect and t._rect[0] <= x < t._rect[0] + t._rect[2]
+                     and t._rect[1] <= y < t._rect[1] + t._rect[3]), None)
 
     # --- Dialogs that wait for an answer ---
 
@@ -736,6 +813,10 @@ class View(Group):
             return
 
         if input.type.startswith("mouse"):
+            toast = None if self._line_drag else self._toast_at(mouse.x, mouse.y)
+            if toast is not None:
+                if input.type == "mouse_down": toast.close() # a click dismisses it
+                return
             if self._line_input(input): return
             if input.type == "mouse_down" and top and not top._contains(mouse.x, mouse.y):
                 if top.close_on_outside_click:
@@ -797,6 +878,7 @@ class View(Group):
                 self._draw_layer_borders(screen, popup)
                 for widget in self._walk(popup.widgets):
                     if widget._canvas: self._blit(screen, widget)
+            if self._toasts: self._draw_toasts(screen)
             out = screen.diff(self._shown, self._top)
             self._shown = screen
             if out: write(render_frame(out))

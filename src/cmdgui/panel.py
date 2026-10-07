@@ -167,8 +167,10 @@ class Group():
             raise LayoutError(f"widget{'s' if len(unused) > 1 else ''} {', '.join(unused)} "
                               f"{'are' if len(unused) > 1 else 'is'} not in the layout")
         for name, slot in self.grid.slots.items():
-            attr = getattr(type(self), name, None)
-            if name in self.__dict__ or (attr is not None and not isinstance(attr, Widget)):
+            # Something else of the same name: an attribute, or a method or setting of any
+            # class it's built on (a widget class attribute hides those, so look at each)
+            if name in self.__dict__ or any(name in vars(klass) and not isinstance(vars(klass)[name], Widget)
+                                            for klass in type(self).__mro__):
                 raise LayoutError(f"widget name '{name}' clashes with {self._kind}.{name}, pick another name")
             widget = provided.get(name)
             if widget is None:
