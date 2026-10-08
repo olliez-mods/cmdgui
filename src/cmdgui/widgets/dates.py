@@ -101,6 +101,9 @@ class Calendar(Widget):
         if not (2 <= y < 2 + WEEKS and 0 <= col < 7 and offset < 2): return None
         return self._weeks()[y - 2][col]
 
+    def key_hints(self):
+        return [("up/down/left/right", "Move"), ("page_up/page_down", "Month"), ("enter", "Choose")]
+
     def on_input(self, input):
         if(input.type == "key"):
             key = input.details["key"]
@@ -203,6 +206,9 @@ class DatePicker(Widget):
     def _picked(self, day):
         self.close()
         self.choose(day)
+
+    def key_hints(self):
+        return [("enter", "Open"), ("up/down", "Day")]
 
     def on_input(self, input):
         if(input.type == "key"):

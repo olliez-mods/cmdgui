@@ -209,6 +209,12 @@ class Tabs(Panel):
             if start <= x < start + text_width(label): return name
         return None
 
+    def key_hints(self):
+        return [("left/right", "Switch tab")]
+
+    def _child_key_hints(self):
+        return [("ctrl+page_up/ctrl+page_down", "Switch tab")]
+
     def on_input(self, input):
         if(input.type == "key"):
             key = input.details["key"]

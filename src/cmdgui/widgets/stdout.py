@@ -15,6 +15,9 @@ class Stdout(Widget):
     def init(self):
         self.lines = [["", ""]] # [text, style]
         self.scroll = 0 # wrapped lines up from the bottom
+    def key_hints(self):
+        return [("up/down", "Scroll")]
+
     def on_input(self, input):
         if(input.type in ("stdout", "stderr")):
             self.write(input.details["text"], error=input.type == "stderr")

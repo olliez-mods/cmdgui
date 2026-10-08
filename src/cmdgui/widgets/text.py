@@ -277,6 +277,12 @@ class TextInput(_Editable, Widget):
         x = self.mouse_pos()[0] - text_width(self.prefix)
         return _index_at(self._shown(), self.scroll, len(self.value), max(0, x))
 
+    def key_hints(self):
+        hints = [("enter", "Submit")] if self.submit_callback else []
+        if self._ghost(): hints.append(("tab", "Complete"))
+        if self.keep_history: hints.append(("up/down", "History"))
+        return hints
+
     def on_input(self, input):
         if(input.type == "paste"):
             self._insert(_clean(input.details["text"], newlines=False))

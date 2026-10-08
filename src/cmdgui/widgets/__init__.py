@@ -8,6 +8,7 @@ from .controls import Button, Select, ProgressBar, Slider, Checkbox, Toggle, Rad
 from .lists import Menu, Tree, Table
 from .stdout import Stdout, DrawMouse
 from .tabs import Tabs
+from .hints import KeyHints, key_name
 from .graphics import Graphics
 from .dates import Calendar, DatePicker
 from .log import Log

@@ -131,6 +131,9 @@ class Log(Widget):
         """The rows an entry takes, as (start, end) of its message."""
         return wrap_spans(self._plain(entry[2]), width - self._prefix_width(width))
 
+    def key_hints(self):
+        return [("up/down", "Scroll")]
+
     def on_input(self, input):
         if(input.type == "mouse_scroll" and self.mouse_over()):
             step = 1 if input.details["direction"] == "up" else -1

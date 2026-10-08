@@ -28,6 +28,9 @@ class Menu(Widget):
         hovered = index if index is not None and index < len(self.items) else None
         if(hovered != self.hovered): self.hovered = hovered # only redraw when it changes
 
+    def key_hints(self):
+        return [("up/down", "Move"), ("enter", "Select")]
+
     def on_input(self, input):
         if(input.type == "key"):
             key = input.details["key"]
@@ -152,6 +155,9 @@ class Tree(Widget):
     def _move_to(self, path):
         self._follow = True
         self.selected = path
+
+    def key_hints(self):
+        return [("up/down", "Move"), ("left/right", "Fold"), ("enter", "Select")]
 
     def on_input(self, input):
         rows = self._rows()
@@ -329,6 +335,9 @@ class Table(Widget):
         order = self.order()
         position = self.scroll + y - 1
         return order[position] if y >= 1 and 0 <= position < len(order) else None
+
+    def key_hints(self):
+        return [("up/down", "Move"), ("enter", "Select"), ("1-9", "Sort")]
 
     def on_input(self, input):
         if(input.type == "key"):

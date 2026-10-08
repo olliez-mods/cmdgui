@@ -21,6 +21,7 @@
 | `tabs` | [`Tabs`](#tabs) | Several panels or widgets in one place, with a bar to switch between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
 | `log` | [`Log`](#log) | Log messages with levels in colour, filtering and search |
+| `key_hints` | [`KeyHints`](keys-and-focus.md#a-footer-of-the-keys-that-work) | A footer of the keys that work right now |
 | `graphics` | [`Graphics`](#graphics) | Draw in pixels: lines, shapes, curves |
 
 ## Common to every widget

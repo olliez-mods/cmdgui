@@ -40,6 +40,7 @@ view = View("...", theme={
 | `today` | today's date in a `Calendar` | bold, underlined |
 | `log_debug`, `log_info`, `log_warning`, `log_error`, `log_critical` | the level names in a `Log` | bright black, cyan, bold yellow, bold red, bold white on red |
 | `match` | text matching a `Log`'s search | black on yellow |
+| `hint_key`, `hint` | a key in a [`KeyHints`](keys-and-focus.md#a-footer-of-the-keys-that-work) footer, and what it does | bold cyan, plain |
 | `toast_info`, `toast_ok`, `toast_warning`, `toast_error` | the border and icon of a [notification](popups.md#notifications) | cyan, green, bold yellow, bold red |
 | `disabled` | replaces every style in a disabled widget | bright black |
 

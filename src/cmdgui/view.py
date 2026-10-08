@@ -172,6 +172,7 @@ class View(Group):
         self.focused: Optional[Widget] = None
         self.theme = {**DEFAULT_THEME, **(theme or {})}
         self.bindings = {} # key name -> function
+        self._key_labels = {} # key name -> what it does, for KeyHints
         self.timers: list[Timer] = []
         self.size = (0, 0)
         self._base = None   # borders (or the "too small" message), widgets go on top
@@ -552,11 +553,42 @@ class View(Group):
                 index = 0 if step > 0 else -1
             self.focus(focusable[index])
 
-    def on_key(self, key: str, callback: Optional[Callable[[], Any]]) -> None:
-        """Call callback() when key is pressed, e.g. view.on_key("ctrl+s", save).
-        Pass None to remove a binding."""
-        if callback: self.bindings[key] = callback
-        else: self.bindings.pop(key, None)
+    def on_key(self, key: str, callback: Optional[Callable[[], Any]], label: Optional[str] = None) -> None:
+        """Call callback() when key is pressed, e.g. view.on_key("ctrl+s", save, "Save").
+        With a label, a KeyHints footer shows the key. Pass None to remove a binding."""
+        with self.lock:
+            if callback: self.bindings[key] = callback
+            else: self.bindings.pop(key, None)
+            if callback and label: self._key_labels[key] = label
+            else: self._key_labels.pop(key, None)
+            self._redraw_base = True # for KeyHints
+        self._wake()
+
+    def key_hints(self) -> list[tuple[str, str]]:
+        """The keys that work right now, as (key, what it does), for a footer: Escape for
+        an open popup, the focused widget's keys, and the key bindings with a label
+        (leaving out ones a text box would take as typing, and all but quitting while a
+        dialog waits), then the quit key. KeyHints shows these."""
+        with self.lock:
+            hints = []
+            top = self.popups[-1] if self.popups else None
+            if top is not None and top.close_on_escape:
+                hints.append(("escape", "Cancel" if top._dialog else "Close"))
+            focused = self.focused
+            if focused is not None and focused._usable:
+                hints += focused.key_hints()
+                for group in _groups(focused):
+                    if isinstance(group, Widget): hints += group._child_key_hints()
+            typing = focused is not None and focused.captures_text
+            dialog = any(p._dialog for p in self.popups)
+            for key, label in self._key_labels.items():
+                if key == self.quit_key or key not in self.bindings: continue
+                if dialog or (typing and len(key) == 1): continue # the key wouldn't run it now
+                hints.append((key, label))
+            if self.quit_key and self.bindings.get(self.quit_key) == self.quit:
+                hints.append(("ctrl+c", "Quit") if typing and len(self.quit_key) == 1 else (self.quit_key, "Quit"))
+            seen = set()
+            return [hint for hint in hints if not (hint[0] in seen or seen.add(hint[0]))]
 
     # --- Timers ---
 
@@ -859,7 +891,11 @@ class View(Group):
                     old = (popup.x, popup.y, popup.width, popup.height)
                     self._place_popup(popup) # its content may want a different size now
                     if (popup.x, popup.y, popup.width, popup.height) != old: changed = True
-            for widget in self._all_widgets():
+            widgets = self._all_widgets()
+            if self._redraw_base or any(widget._dirty for widget in widgets):
+                for widget in widgets: # what works may have changed: focus, popups, a text box's suggestion
+                    if isinstance(widget, KeyHints): widget._dirty = True
+            for widget in widgets:
                 if widget._dirty:
                     _, _, width, height = widget._draw_area()
                     canvas = Canvas(max(0, width), max(0, height))

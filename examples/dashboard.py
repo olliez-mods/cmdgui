@@ -17,7 +17,7 @@ import time
 from typing import Any, Callable, Optional
 
 from cmdgui import (View, Popup, Widget, Label, Text, Button, TextInput, ProgressBar,
-                    Checkbox, Toggle, Menu, Table, Log, field, style)
+                    Checkbox, Toggle, Menu, Table, Log, KeyHints, field, style)
 from cmdgui.shorts import escape, fit, pad_left, pad_right, text_width
 
 
@@ -298,6 +298,7 @@ class MissionControl(View):
         services  log       log       log
         deploy    restart   scale     heal
         command   -         -         -
+        hints     -         -         -
     """
     banner = Banner(" ◆ MISSION CONTROL   prod-eu-1")
     clock = Label(align="right", preferred_width="10+", style=style(fg="black", bg="cyan", bold=True))
@@ -320,6 +321,7 @@ class MissionControl(View):
                         prefix="› ", suggest=lambda text: suggest_command(text),
                         on_change=lambda value: command_typed(value),
                         on_submit=lambda value: command_entered(value))
+    hints = KeyHints()  # the keys that work right now
 
     confirm = Confirm()
     deploy_dialog = DeployDialog()
@@ -530,13 +532,13 @@ def refresh_overview():
 
 
 view = MissionControl(theme=THEME)
-view.on_key("d", lambda: view.deploy_dialog.open(view, selected()))
-view.on_key("r", ask_restart)
-view.on_key("s", lambda: view.show(view.scale_menu, below=view.scale))
-view.on_key("i", incident)
-view.on_key("c", toggle_charts)
-view.on_key("?", lambda: view.show(view.help))
-view.on_key("/", lambda: (view.focus(view.command), view.command.set(value="/", cursor=1), command_typed("/")))
+view.on_key("d", lambda: view.deploy_dialog.open(view, selected()), "Deploy")
+view.on_key("r", ask_restart, "Restart")
+view.on_key("s", lambda: view.show(view.scale_menu, below=view.scale), "Scale")
+view.on_key("i", incident, "Incident")
+view.on_key("c", toggle_charts, "Charts")
+view.on_key("?", lambda: view.show(view.help), "Help")
+view.on_key("/", lambda: (view.focus(view.command), view.command.set(value="/", cursor=1), command_typed("/")), "Command")
 view.focus(view.services)
 refresh_overview()  # fill the table first, so it can highlight the selected service
 show_service(selected())

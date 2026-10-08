@@ -81,6 +81,8 @@ DEFAULT_THEME = {
     "toast_ok": style(fg="green"),
     "toast_warning": style(fg="yellow", bold=True),
     "toast_error": style(fg="red", bold=True),
+    "hint_key": style(fg="cyan", bold=True),   # a key in a KeyHints footer
+    "hint": "",                                # what the key does
 }
 
 # Changing these means the layout has to be worked out again
@@ -297,6 +299,15 @@ class Widget(_FieldWidget):
         screen cells. char replaces a plain straight line there (None keeps it); junctions
         are kept, and only restyled."""
         return {}
+
+    def key_hints(self) -> list:
+        """The keys this widget uses while it's focused, for a KeyHints footer:
+        [("up/down", "Move"), ("enter", "Select")]. Join keys with / to show them as one."""
+        return []
+
+    def _child_key_hints(self) -> list:
+        """Keys that work while a widget inside this one is focused (see _child_key)."""
+        return []
 
     def _claims_key(self, key) -> bool:
         """True to get this key while focused before key bindings and Tab do, e.g. a text

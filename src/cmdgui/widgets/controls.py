@@ -17,6 +17,9 @@ class Button(Widget):
         self.hovered = False
     def on_click(self, callback: Callable[[], Any]):
         self.callback = callback
+    def key_hints(self):
+        return [("enter", "Press")]
+
     def on_input(self, input):
         if(input.type == "key"):
             if(input.details["key"] in ("enter", "space")): _call(self.callback)
@@ -85,6 +88,9 @@ class Select(Widget):
     def _picked(self, index, option):
         self.close()
         self.select(index)
+
+    def key_hints(self):
+        return [("enter", "Open"), ("up/down", "Change")]
 
     def on_input(self, input):
         if(input.type == "key"):
@@ -171,6 +177,9 @@ class Slider(Widget):
         x = max(0, min(track - 1, self.mouse_pos()[0]))
         self._set(self.min + (self.max - self.min) * (x / max(1, track - 1)))
 
+    def key_hints(self):
+        return [("left/right", "Adjust")]
+
     def on_input(self, input):
         if(input.type == "key"):
             key = input.details["key"]
@@ -216,6 +225,9 @@ class Checkbox(Widget):
     def toggle(self):
         self.checked = not self.checked
         _call(self.change_callback, self.checked)
+    def key_hints(self):
+        return [("space", "Toggle")]
+
     def on_input(self, input):
         if(input.type == "mouse_down" and self.mouse_over()): self.toggle()
         if(input.type == "key" and input.details["key"] in ("enter", "space")): self.toggle()
@@ -266,6 +278,9 @@ class RadioGroup(Widget):
             out.append((x, 0, width) if self.horizontal else (0, i, width))
             x += width + 2
         return out
+
+    def key_hints(self):
+        return [("left/right" if self.horizontal else "up/down", "Choose")]
 
     def on_input(self, input):
         if(input.type == "key"):
