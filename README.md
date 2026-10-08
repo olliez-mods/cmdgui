@@ -62,7 +62,7 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
   or any program inside the layout, and a pixel canvas with lines, shapes and curves. Panels group widgets into reusable pieces, and lines between
   widgets can be made draggable.
 - **Styled text**: `"[bold red]Error:[/] couldn't open [cyan]notes.txt[/]"` in labels,
-  buttons and text.
+  buttons and text, and Markdown documents with `Text(markdown=True)`.
 - **Text boxes that behave**: select with the mouse or Shift, copy, cut and paste,
   pasting in one go, and dim hints before, after and ahead of the cursor for autocomplete.
 - **Inline views**: draw in a few rows under the prompt instead of the whole screen, with
@@ -91,4 +91,4 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 The [examples](https://github.com/olliez-mods/cmdgui/tree/main/examples) folder has a
 widget demo, a dashboard, popups, dialogs that wait for an answer, tabs, a console, a
 file browser, pixel graphics, a log viewer with draggable lines, date pickers, a shell and
-a Python REPL side by side, and an inline progress display.
+a Python REPL side by side, a reader for these docs, and an inline progress display.

@@ -81,6 +81,17 @@ DEFAULT_THEME = {
     "toast_ok": style(fg="green"),
     "toast_warning": style(fg="yellow", bold=True),
     "toast_error": style(fg="red", bold=True),
+    "md_heading1": style(fg="cyan", bold=True, underline=True), # Markdown in Text(markdown=True)
+    "md_heading2": style(fg="cyan", bold=True),
+    "md_heading": style(bold=True),            # level 3 and below
+    "md_code": style(fg="yellow"),             # `code` in a line
+    "md_code_block": style(fg=252, bg=236),
+    "md_quote": style(fg="bright_black"),      # the bar beside a > quote, and images' [alt text]
+    "md_quote_text": style(italic=True),
+    "md_link": style(fg="blue", underline=True),
+    "md_bullet": style(fg="cyan"),
+    "md_rule": style(fg="bright_black"),       # --- lines, and table lines
+    "md_table_header": style(bold=True),
     "hint_key": style(fg="cyan", bold=True),   # a key in a KeyHints footer
     "hint": "",                                # what the key does
 }

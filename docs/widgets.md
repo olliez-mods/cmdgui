@@ -2,7 +2,7 @@
 
 | Type | Class | What it does |
 |---|---|---|
-| `text` | [`Text`](#text-and-label) | Wrapped text |
+| `text` | [`Text`](#text-and-label) | Wrapped text, or [Markdown](#markdown) |
 | `label` | [`Label`](#text-and-label) | One line of text |
 | `button` | [`Button`](#button) | Click, or Enter/Space when focused |
 | `text_input` | [`TextInput`](#textinput) | A one-line text box |
@@ -122,6 +122,26 @@ Markup works in `Text`, `Label`, `Button`, `Checkbox` and `Toggle`. `markup=Fals
 it off. `Menu`, `Tree`, `Table` and `Log` usually show data, where brackets are common, so
 there it's off unless you pass `markup=True`. To put a value into markup safely, escape
 it: `Label(f"opened [cyan]{escape(name)}[/]")`, with `escape` from `cmdgui.shorts`.
+
+### Markdown
+
+```python
+readme = Text(open("README.md").read(), markdown=True, on_link=open_page)
+```
+
+With `markdown=True` the text is Markdown: headings, **bold**, *italic*, `code`,
+~~strikethrough~~, links, bullet, numbered and `[ ]` task lists (nested), `>` quotes,
+code blocks, `---` lines and tables. (`[style]` markup isn't read then, since Markdown
+uses square brackets for links.)
+
+- Longer than the box, it scrolls: the mouse wheel, or click it (or Tab to it) and use
+  up/down, Page Up/Down, Space, Home and End. `scroll` is how far down it is.
+- Clicking a link calls `on_link(url)`, or without one opens it in your browser. A link
+  to a heading on the same page (`#install`) scrolls to it, and so does
+  `text.scroll_to("install")`: a heading's anchor is made the way GitHub makes them.
+- The colours are the `md_...` [theme](themes.md) keys.
+
+See `examples/markdown.py`, a reader for this project's docs.
 
 ## Button
 

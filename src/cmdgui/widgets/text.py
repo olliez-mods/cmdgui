@@ -5,6 +5,7 @@ from ..shorts import *
 from ..inputs import mouse
 from .. import clipboard
 from .base import Widget, field, _call, Align
+from .. import markdown as _markdown
 
 def _styled(widget, text, base):
     """(plain text, a style per character) for text, read as markup if the widget's
@@ -15,17 +16,107 @@ def _styled(widget, text, base):
 
 class Text(Widget):
     """Text that wraps to fit. Style parts of it with markup:
-    "[bold red]Error:[/] couldn't open [cyan]notes.txt[/]"."""
+    "[bold red]Error:[/] couldn't open [cyan]notes.txt[/]".
+
+    With markdown=True the text is Markdown instead: headings, lists, quotes, code
+    blocks, tables, links and so on (see markdown.py). It scrolls with the mouse wheel when
+    it's longer than the box, and with the arrow keys once focused (a click or Tab), and
+    clicking a link calls on_link(url), or without one opens it in your browser (a
+    #link to a heading in the text just scrolls to it)."""
     text: str = field(default="", kw_only=False)
     align: Align = "left"
     style: str = "" # escape code from style(), e.g. style(fg="red")
     markup: bool = True # read [style]...[/] in the text; False shows it as it is
+    markdown: bool = False # read the text as Markdown (and [style] markup isn't read)
+    link_callback: Optional[Callable[[str], Any]] = field(default=None, alias="on_link")
+
+    def init(self):
+        self.scroll = 0 # rows scrolled down, for Markdown
+        self._rendered = (None, None) # (what it was drawn from, the rows), so it's only worked out again on a change
+
+    @property
+    def focusable(self): # Markdown can be focused to scroll it with the keys
+        return self.markdown
+
+    def on_link(self, callback: Callable[[str], Any]): # called with the url when a Markdown link is clicked
+        self.link_callback = callback
+
+    # --- Markdown ---
+    def _rows(self, width):
+        theme = {key: self.theme(key) for key in _markdown.THEME_KEYS}
+        key = (self.text, width, tuple(theme.values()))
+        if self._rendered[0] != key:
+            self._rendered = (key, _markdown.render(str(self.text), width, theme))
+        return self._rendered[1]
+
+    def _top(self, count, height):
+        """The first row shown, keeping the scroll in range."""
+        top = max(0, min(self.scroll, count - height))
+        if top != self.scroll: object.__setattr__(self, "scroll", top) # no redraw for this
+        return top
+
+    def _draw_markdown(self, c):
+        base = self.style or self.theme("text")
+        rows = self._rows(c.width)
+        top = self._top(len(rows), c.height)
+        for y, row in enumerate(rows[top:top + c.height]):
+            c.styled(0, y, row.text, [base + s for s in row.styles], base, c.width)
+        below = len(rows) - top - c.height
+        if below > 0 and c.height > 1:
+            label = f" ↓ {below} more "
+            c.text(max(0, c.width - text_width(label)), c.height - 1, label, self.theme("dim"))
+
+    def _link_at(self, x, y):
+        rows = self._rows(self.width)
+        index = self._top(len(rows), self.height) + y
+        if not 0 <= index < len(rows): return None
+        row, column = rows[index], 0
+        for i, char in enumerate(row.text):
+            column += char_width(char)
+            if column > x:
+                return next((url for start, end, url in row.links if start <= i < end), None)
+        return None
+
+    def scroll_to(self, anchor: str) -> bool:
+        """Scroll Markdown to a heading by its anchor: "#install" or "install". False if
+        there's no such heading."""
+        rows = self._rows(self.width)
+        index = next((i for i, row in enumerate(rows) if row.anchor == anchor.lstrip("#")), None)
+        if index is None: return False
+        self.scroll = index
+        return True
+
+    def key_hints(self):
+        return [("up/down", "Scroll")] if self.markdown else []
+
+    def on_input(self, input):
+        if not self.markdown: return
+        if input.type == "mouse_scroll" and self.mouse_over():
+            self.scroll = max(0, self.scroll + (-3 if input.details["direction"] == "up" else 3))
+        elif input.type == "mouse_down" and input.details.get("button") == 0 and self.mouse_over():
+            url = self._link_at(*self.mouse_pos())
+            if url and url.startswith("#"): self.scroll_to(url) # a heading on this page
+            elif url:
+                if self.link_callback: self.link_callback(url)
+                else:
+                    import webbrowser
+                    webbrowser.open(url)
+        elif input.type == "key":
+            page = max(1, self.height - 1)
+            moves = {"up": -1, "down": 1, "page_up": -page, "page_down": page, "space": page,
+                     "home": -10 ** 9, "end": 10 ** 9} # draw() keeps it in range
+            key = input.details["key"]
+            if key in moves: self.scroll = max(0, self.scroll + moves[key])
+
     def draw(self, c):
+        if self.markdown: return self._draw_markdown(c)
         base = self.style or self.theme("text")
         plain, styles = _styled(self, self.text, base)
         for i, (start, end) in enumerate(wrap_spans(plain, c.width)[:c.height]):
             c.styled(0, i, plain[start:end], styles[start:end], base, c.width, self.align)
     def content_size(self):
+        if self.markdown:
+            return 80, max(1, len(self._rows(80)))
         plain = _styled(self, self.text, "")[0]
         width = min(80, max(text_width(line) for line in plain.split("\n")))
         return width, max(1, len(wrap_spans(plain, width)))
