@@ -123,6 +123,18 @@ class _Editable:
     def select_all(self) -> None:
         self.select(0, len(self.value))
 
+    def _default_menu_items(self, context):
+        copyable = 1 if self.selection and not self._secret() else 0
+        def cut(ctx):
+            sel = self.selection
+            clipboard.copy(self.value[sel[0]:sel[1]])
+            self._set_text(self.value[:sel[0]] + self.value[sel[1]:], sel[0])
+        return [("Cut", cut, lambda ctx: copyable),
+                ("Copy", lambda ctx: clipboard.copy(self.selected_text), lambda ctx: copyable),
+                ("Paste", lambda ctx: self._insert(_clean(clipboard.paste(), isinstance(self, TextArea))),
+                 lambda ctx: 1 if clipboard.paste() else 0), # what was copied in this program
+                ("Select all", lambda ctx: self.select_all(), lambda ctx: 1 if self.value else 0)]
+
     def _secret(self):
         return getattr(self, "password", False) # passwords can't be copied
 

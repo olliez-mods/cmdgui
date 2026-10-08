@@ -75,6 +75,7 @@ These are plain class attributes, not constructor arguments:
 | `content_size()` | `(width, height)` the content would like, `None` for either if it doesn't matter. Popups use it to size themselves |
 | `on_resize()` | called after `x`, `y`, `width` or `height` change |
 | `on_focus()`, `on_blur()` | called when it gains or loses focus |
+| `menu_context(x, y)` | what a right-click at `(x, y)` was on, for its [menu](widgets.md#right-click-menus): start from `super().menu_context(x, y)` and add keys |
 | `key_hints()` | the keys it uses while focused, for a [`KeyHints`](keys-and-focus.md#a-footer-of-the-keys-that-work) footer: `[("up/down", "Move"), ("enter", "Select")]`. Keys joined with `/` show as one (`↑↓`) |
 
 ## Inputs

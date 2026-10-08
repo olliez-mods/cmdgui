@@ -52,7 +52,8 @@ It keeps up by itself, showing in order:
 
 - `Esc` when a popup is open (Cancel for a dialog, Close otherwise)
 - the focused widget's keys, like a list's `↑↓ Move` and `Enter Select`, and keys from
-  what it's inside, like `Ctrl+PgUp/PgDn Switch tab` in a `Tabs`
+  what it's inside, like `Ctrl+PgUp/PgDn Switch tab` in a `Tabs`, and `Shift+F10 Menu`
+  when it has a [right-click menu](widgets.md#right-click-menus)
 - your key bindings that have a label, leaving out the ones that wouldn't run right now:
   single keys while you type in a text box, and all of them while a dialog waits
 - the quit key (`Ctrl+C` while typing, since `q` would type a q)

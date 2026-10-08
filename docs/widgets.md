@@ -38,6 +38,7 @@ Every widget takes these, as constructor arguments or attributes:
 | `enabled` | `False` greys it out: it can't be focused and ignores clicks and keys |
 | `visible` | `False` hides it, and the layout closes up around it (see [hiding widgets](layouts.md#hiding-widgets)) |
 | `tab_stop` | `False`: Tab skips it, though a click still focuses it |
+| `default_menu` | `False` leaves out its built-in [right-click](#right-click-menus) items |
 
 Most of these can also be set from the layout string with [flags](layouts.md#flags):
 `log{-b,h=6}`.
@@ -49,6 +50,42 @@ later (`button.on_click(fn)`).
 Setting any attribute redraws the widget: `view.save.enabled = False`,
 `view.bar.value = 0.5`. `widget.set(a=..., b=...)` changes several at once. After
 changing a list in place, like `view.menu.items.append(...)`, call `widget.refresh()`.
+
+## Right-click menus
+
+Any widget can have a menu that a right-click opens, or **Shift+F10** (or the Menu key)
+while it's focused:
+
+```python
+files.menu_item("Delete", lambda ctx: delete(ctx["item"]))
+files.menu_item("Rename…", lambda ctx: rename(ctx["item"]),
+                show=lambda ctx: 1 if ctx["item"] is not None else -1)
+files.menu_item("Rename…", None)    # remove it
+```
+
+- `on_click(ctx)` runs the item. `ctx` is a dict saying what was clicked: always
+  `widget`, and `x` and `y` relative to it, plus more for some widgets (below).
+- `show(ctx)` decides how the item looks this time: `1` to click, `0` greyed out, `-1`
+  left out. Without `show` it's always there to click.
+- Items on a [panel](layouts.md#panels-in-a-layout) show in the menus of every widget
+  inside it, after the widget's own, with a line between.
+- Some widgets have built-in items, shown after yours; `default_menu=False` turns them off.
+- Pick with a click, or up/down and Enter. Escape or a click elsewhere closes it.
+- For your own widgets, override `menu_context(x, y)` to add keys, starting from
+  `super().menu_context(x, y)`.
+
+| Widget | Extra `ctx` keys | Built-in items |
+|---|---|---|
+| `Menu` | `index`, `item` (`None` off the items) | |
+| `Tree` | `path`, `node` (the label) | |
+| `Table` | `index` (into `rows`), `row`, `column` | Copy row |
+| `TextInput`, `TextArea` | | Cut, Copy, Paste, Select all |
+| `Log` | `line`, `level` | Copy line, Clear |
+| `Stdout` | `line` | Copy line, Clear |
+
+With Shift+F10, `ctx` is for the selected item. Paste in the menu pastes what was last
+copied in your program; pasting from elsewhere is done by the terminal (Cmd+V or
+Ctrl+Shift+V). See `examples/dialogs.py` and `examples/widgets.py`.
 
 ## Text and Label
 

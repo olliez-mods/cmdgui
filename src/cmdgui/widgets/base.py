@@ -111,6 +111,7 @@ class Widget(_FieldWidget):
     enabled: bool = True          # False greys it out and ignores the mouse and keyboard
     visible: bool = True          # False hides it, and the layout closes up the space it took
     tab_stop: bool = True         # False: Tab skips it (a click can still focus it)
+    default_menu: bool = True     # the built-in right-click items, like Copy and Paste in text boxes
 
     # Class settings (not constructor arguments)
     type_name = None      # name used in layouts, defaults to the class name in snake_case
@@ -149,6 +150,7 @@ class Widget(_FieldWidget):
         self._popup: Any = None # the Popup this widget is in, if any (even inside a tab of it)
         self._group: Any = None # the View or Panel (or Tabs, or Popup) it's in
         self._framed = False    # whether the layout gave it a border
+        self._menu: list = []   # right-click items from menu_item(): (name, on_click, show)
         for name, info in type(self)._fields.items():
             value = info.default_factory() if info.default_factory else getattr(type(self), name, None)
             object.__setattr__(self, name, value)
@@ -299,6 +301,34 @@ class Widget(_FieldWidget):
         screen cells. char replaces a plain straight line there (None keeps it); junctions
         are kept, and only restyled."""
         return {}
+
+    # --- Right-click menu ---
+
+    def menu_item(self, name: str, on_click: Optional[Callable[[dict], Any]],
+                  show: Optional[Callable[[dict], int]] = None) -> None:
+        """Add an item to the menu a right-click (or Shift+F10 while focused) opens:
+            table.menu_item("Delete row", lambda ctx: delete(ctx["index"]),
+                            show=lambda ctx: 1 if ctx["index"] is not None else -1)
+        on_click(context) runs it. show(context) says how it looks this time: 1 to click,
+        0 greyed out, -1 not there; without show it's always clickable. context is a dict
+        saying what was clicked (see menu_context). An item of the same name is replaced;
+        on_click=None removes it. A panel's items show under those of the widgets in it."""
+        self._menu = [item for item in self._menu if item[0] != name]
+        if on_click is not None: self._menu.append((name, on_click, show))
+
+    def menu_context(self, x: int, y: int) -> dict:
+        """What a right-click at (x, y), relative to this widget, was on, for the menu's
+        callbacks: always widget, x and y, and more for some widgets (like the row of a
+        Table). Override to add your own keys, starting from super().menu_context(x, y)."""
+        return {"widget": self, "x": x, "y": y}
+
+    def _menu_anchor(self):
+        """Where Shift+F10 opens the menu, relative to the widget: the selected row, say."""
+        return 0, 0
+
+    def _default_menu_items(self, context) -> list:
+        """The built-in items (when default_menu is on): (name, on_click, show) like menu_item's."""
+        return []
 
     def key_hints(self) -> list:
         """The keys this widget uses while it's focused, for a KeyHints footer:

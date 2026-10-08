@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ..shorts import *
 from ..inputs import mouse
+from .. import clipboard
 from .base import Widget
 
 class Stdout(Widget):
@@ -15,6 +16,18 @@ class Stdout(Widget):
     def init(self):
         self.lines = [["", ""]] # [text, style]
         self.scroll = 0 # wrapped lines up from the bottom
+    def menu_context(self, x, y):
+        context = super().menu_context(x, y)
+        lines = self.lines[:-1] if self.lines[-1][0] == "" else self.lines
+        wrapped = [text for text, _ in lines for _ in wrap(text, self.width)] # each row's whole line
+        end = len(wrapped) - self.scroll
+        shown = wrapped[max(0, end - self.height):end]
+        context["line"] = shown[y] if 0 <= y < len(shown) else None
+        return context
+    def _default_menu_items(self, context):
+        line = context["line"]
+        return [("Copy line", lambda ctx: clipboard.copy(line), lambda ctx: 1 if line is not None else 0),
+                ("Clear", lambda ctx: self.clear(), None)]
     def key_hints(self):
         return [("up/down", "Scroll")]
 

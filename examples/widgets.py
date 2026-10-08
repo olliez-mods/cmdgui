@@ -1,7 +1,8 @@
 from cmdgui import View, Label, TextInput, TextArea, Button, Toggle, Menu, Table, ProgressBar, Checkbox, Slider, RadioGroup, Select, style, Panel, Stdout
 import time
 
-# Tab / Shift+Tab or click to move focus, q to quit (unless typing in the text box)
+# Tab / Shift+Tab or click to move focus, q to quit (unless typing in the text box).
+# Right-click the scores table, the box under it, or a text box for their menus.
 
 def greet():
     print(f"Hello, {view.name.value or 'stranger'}! 👋")
@@ -51,6 +52,13 @@ class Demo(View):
 view = Demo()
 view.adjustable(view.fruit, view.rightSide)  # drag the line between them
 view.on_key("ctrl+r", lambda: print("ctrl+r pressed"))
+
+# Right-click menus. The table's own item, for the row under the mouse (it has Copy row built in):
+view.rightSide.scores.menu_item("Who's this?", lambda ctx: view.notify(f"{ctx['row'][0]} from {ctx['row'][2]}"),
+                                show=lambda ctx: 1 if ctx["row"] else -1)
+# Items on a panel show in the menus of everything inside it: the table and the box under it
+view.rightSide.menu_item("Best first", lambda ctx: view.rightSide.scores.sort("score", reverse=True))
+view.rightSide.menu_item("Original order", lambda ctx: view.rightSide.scores.sort(None))
 view.color.select(1)
 # Timers run on the view's thread, alongside your program
 view.every(1, lambda: view.heading.set(text=time.strftime("[bold]cmdgui widget demo[/]  ·  Tab to move  ·  q to quit  ·  [cyan]%H:%M:%S[/]")))

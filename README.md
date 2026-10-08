@@ -70,8 +70,9 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 - **Popups**: dialogs, dropdowns and command menus that float over the layout, and
   questions that wait for the answer: `if view.confirm("Delete it?"): ...`, and
   notifications in the corner: `view.notify("Saved", "ok")`.
-- **Mouse and keyboard**: clicks, dragging, the scroll wheel, Tab between widgets, your
-  own key bindings, and a footer that shows the keys that work right now.
+- **Mouse and keyboard**: clicks, dragging, the scroll wheel, right-click menus, Tab
+  between widgets, your own key bindings, and a footer that shows the keys that work
+  right now.
 - **Timers**: `view.every(1, tick)` and `view.after(5, fn)`, no threads needed.
 - **Themes**: restyle any part, with 73 named colors, the 256-color palette, or exact
   hex colors.

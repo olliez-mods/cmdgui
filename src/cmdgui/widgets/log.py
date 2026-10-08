@@ -7,6 +7,7 @@ import time as _time
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Optional, Union
 from ..shorts import *
+from .. import clipboard
 from .base import Widget
 
 Level = Literal["debug", "info", "warning", "error", "critical"]
@@ -131,6 +132,26 @@ class Log(Widget):
         """The rows an entry takes, as (start, end) of its message."""
         return wrap_spans(self._plain(entry[2]), width - self._prefix_width(width))
 
+    def _entry_at(self, y):
+        """The entry shown on row y, worked out as draw() does, or None."""
+        with self._lock:
+            entries = list(self._entries)
+        rows = []
+        for entry in reversed(entries):
+            if(not self._shows(entry)): continue
+            rows.extend([entry] * len(self._entry_rows(entry, self.width)))
+            if(len(rows) >= self.scroll + self.height): break
+        shown = list(reversed(rows[self.scroll:self.scroll + self.height]))
+        return shown[y] if 0 <= y < len(shown) else None
+    def menu_context(self, x, y):
+        context = super().menu_context(x, y)
+        entry = self._entry_at(y)
+        context.update(line=self._plain(entry[2]) if entry else None, level=entry[1] if entry else None)
+        return context
+    def _default_menu_items(self, context):
+        line = context["line"]
+        return [("Copy line", lambda ctx: clipboard.copy(line), lambda ctx: 1 if line is not None else 0),
+                ("Clear", lambda ctx: self.clear(), None)]
     def key_hints(self):
         return [("up/down", "Scroll")]
 

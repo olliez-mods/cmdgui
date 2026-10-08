@@ -4,7 +4,8 @@ from cmdgui import View, Button, Menu, Stdout, KeyHints
 # what was picked, so there's no callback to write. They work from your own code (like the
 # question at the start) and from callbacks (the buttons, and the keys d, r and o).
 # Escape cancels. q to quit. The footer shows the keys that work right now: watch it change
-# as you move around, open a dialog, or start typing.
+# as you move around, open a dialog, or start typing. Right-click a file (or Shift+F10)
+# for its menu, and right-click the log to copy a line or clear it.
 
 def selected():
     files = view.files
@@ -59,6 +60,18 @@ view.on_key("d", delete, "Delete")  # the label puts the key in the footer
 view.on_key("r", rename, "Rename")
 view.on_key("o", open_with, "Open with")
 view.focus(view.files)
+
+# Right-click menu: ctx says what was clicked (here the file under the mouse, ctx["item"]).
+# show gives 1 to click, 0 greyed out, -1 left out.
+def on_file(action):
+    """Do action to the right-clicked file: select it first, as the buttons use the selection."""
+    return lambda ctx: (view.files.set(selected=ctx["index"]), action())
+
+on_a_file = lambda ctx: 1 if ctx["item"] is not None else -1    # nothing on an empty row
+view.files.menu_item("Open with…", on_file(open_with), show=on_a_file)
+view.files.menu_item("Rename…", on_file(rename), show=on_a_file)
+view.files.menu_item("Delete", on_file(delete),               # greyed out for the last file
+                     show=lambda ctx: -1 if ctx["item"] is None else 1 if len(view.files.items) > 1 else 0)
 
 # From your own code: this waits here until it's answered, while the view keeps running
 name = view.prompt("What should I call you?", placeholder="your name", title="Hello")

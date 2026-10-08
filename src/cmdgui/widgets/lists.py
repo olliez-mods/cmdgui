@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Optional
 from ..shorts import *
+from .. import clipboard
 from .base import Widget, field, _call
 from .text import _styled
 
@@ -28,6 +29,14 @@ class Menu(Widget):
         hovered = index if index is not None and index < len(self.items) else None
         if(hovered != self.hovered): self.hovered = hovered # only redraw when it changes
 
+    def menu_context(self, x, y):
+        context = super().menu_context(x, y)
+        index = self.scroll + y
+        found = y >= 0 and index < len(self.items)
+        context.update(index=index if found else None, item=self.items[index] if found else None)
+        return context
+    def _menu_anchor(self):
+        return 1, max(0, self.selected - self.scroll)
     def key_hints(self):
         return [("up/down", "Move"), ("enter", "Select")]
 
@@ -156,6 +165,14 @@ class Tree(Widget):
         self._follow = True
         self.selected = path
 
+    def menu_context(self, x, y):
+        context = super().menu_context(x, y)
+        rows = self._rows()
+        row = rows[self.scroll + y] if y >= 0 and self.scroll + y < len(rows) else None
+        context.update(path=row[0] if row else None, node=row[0][-1] if row else None)
+        return context
+    def _menu_anchor(self):
+        return 1, max(0, self._index(self._rows()) - self.scroll)
     def key_hints(self):
         return [("up/down", "Move"), ("left/right", "Fold"), ("enter", "Select")]
 
@@ -336,6 +353,21 @@ class Table(Widget):
         position = self.scroll + y - 1
         return order[position] if y >= 1 and 0 <= position < len(order) else None
 
+    def menu_context(self, x, y):
+        context = super().menu_context(x, y)
+        index = self._row_at(y)
+        _, widths, starts = self._layout(self.width)
+        column = next((i for i, (start, width) in enumerate(zip(starts, widths)) if start <= x < start + width + 2), None)
+        context.update(index=index, row=self.rows[index] if index is not None else None, column=column)
+        return context
+    def _menu_anchor(self):
+        order = self.order()
+        position = order.index(self.selected) if self.selected in order else 0
+        return 1, max(1, position - self.scroll + 1)
+    def _default_menu_items(self, context):
+        row = context["row"]
+        return [("Copy row", lambda ctx: clipboard.copy("\t".join(str(v) for v in row)),
+                 lambda ctx: 1 if row is not None else 0)]
     def key_hints(self):
         return [("up/down", "Move"), ("enter", "Select"), ("1-9", "Sort")]
 

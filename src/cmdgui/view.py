@@ -120,6 +120,62 @@ class Timer:
         self._cancelled = True
 
 
+class _MenuRows(Widget):
+    """The items of a right-click menu, in a popup: entries are (name, on_click, state),
+    state 1 to click or 0 greyed out, or None for a line between groups."""
+    _auto_type = False
+    focusable = True
+
+    def init(self):
+        self.entries: list = []
+        self.context: dict = {}
+        self.current: Optional[int] = None # the highlighted item
+
+    def _clickable(self, index):
+        entry = self.entries[index] if 0 <= index < len(self.entries) else None
+        return entry is not None and entry[2] == 1
+
+    def _step(self, step):
+        count, index = len(self.entries), self.current
+        for _ in range(count):
+            index = (0 if step > 0 else count - 1) if index is None else (index + step) % count
+            if self._clickable(index):
+                self.current = index
+                return
+
+    def _choose(self, index):
+        _, on_click, _ = self.entries[index]
+        self._group.close() # first, so on_click can open something else
+        on_click(self.context)
+
+    def key_hints(self):
+        return [("up/down", "Move"), ("enter", "Choose")]
+
+    def on_input(self, input):
+        if input.type == "key":
+            key = input.details["key"]
+            if key in ("up", "down"): self._step(-1 if key == "up" else 1)
+            elif key in ("enter", "space") and self.current is not None: self._choose(self.current)
+        elif input.type == "mouse_move" and self.mouse_over():
+            row = self.mouse_pos()[1]
+            if self._clickable(row) and row != self.current: self.current = row
+        elif input.type == "mouse_down" and input.details.get("button") in (0, 2) and self.mouse_over():
+            row = self.mouse_pos()[1]
+            if self._clickable(row): self._choose(row)
+
+    def draw(self, c):
+        for y, entry in enumerate(self.entries[:c.height]):
+            if entry is None:
+                c.text(0, y, "─" * c.width, self.theme("dim"))
+                continue
+            name, _, state = entry
+            s = self.theme("disabled") if state == 0 else self.theme("selected") if y == self.current else ""
+            c.text(0, y, pad_right(f" {name} ", c.width), s)
+
+    def content_size(self):
+        return max(text_width(entry[0]) + 2 for entry in self.entries if entry), len(self.entries)
+
+
 class Toast:
     """A short message in the corner of the screen, from view.notify(). It goes by itself
     after a few seconds, or when it's clicked; close() takes it away sooner."""
@@ -297,6 +353,37 @@ class View(Group):
                       title=title, on_close=on_close)
         ok.on_click(popup.close)
         return self.show(popup)
+
+    # --- Right-click menus ---
+
+    def _menu_entries(self, widget, context):
+        """The items for a widget's menu: its own, its built-in ones, then each panel's it's
+        in, with a line between each lot. Each is (name, on_click, state)."""
+        entries = []
+        def add(items):
+            rows = []
+            for name, on_click, show in items:
+                state = 1 if show is None else show(context)
+                if state not in (-1, 0, 1):
+                    raise ValueError(f"show() for the menu item {name!r} should give -1, 0 or 1, not {state!r}")
+                if state >= 0: rows.append((name, on_click, state))
+            if rows and entries: entries.append(None)
+            entries.extend(rows)
+        add(widget._menu)
+        if widget.default_menu: add(widget._default_menu_items(context))
+        for group in _groups(widget):
+            if isinstance(group, Widget): add(group._menu)
+        return entries
+
+    def _open_menu(self, widget, x, y):
+        """Open a widget's right-click menu for (x, y), relative to it. False if it has none."""
+        context = widget.menu_context(x, y)
+        entries = self._menu_entries(widget, context)
+        if not entries: return False
+        rows = _MenuRows(entries=entries, context=context)
+        rows._step(1) # highlight the first item that can be clicked
+        self.show(Popup(rows, close_on_outside_click=True), at=(widget.x + x, widget.y + y))
+        return True
 
     # --- Notifications ---
 
@@ -579,6 +666,9 @@ class View(Group):
                 hints += focused.key_hints()
                 for group in _groups(focused):
                     if isinstance(group, Widget): hints += group._child_key_hints()
+                if not focused._claims_key("shift+f10") and \
+                        self._menu_entries(focused, focused.menu_context(*focused._menu_anchor())):
+                    hints.append(("shift+f10", "Menu"))
             typing = focused is not None and focused.captures_text
             dialog = any(p._dialog for p in self.popups)
             def works(key): # the key would reach the key bindings now
@@ -828,6 +918,8 @@ class View(Group):
                 if target:
                     target.on_input(input) # e.g. arrows move through a menu while typing
                     return
+            if focused and focused._usable and key in ("shift+f10", "menu"):
+                if self._open_menu(focused, *focused._menu_anchor()): return # its right-click menu
             if focused and focused.captures_text and char:
                 focused.on_input(input) # typing into a text box beats key bindings
             elif key in self.bindings and not (key != self.quit_key and any(p._dialog for p in self.popups)):
@@ -860,6 +952,12 @@ class View(Group):
                 elif top.modal:
                     return
             active = self._active_widgets()
+            if input.type == "mouse_down" and input.details.get("button") == 2:
+                # A right-click: the menu of the innermost widget under the mouse (or the panels it's in)
+                target = next((w for w in reversed(active) if w._usable and w.mouse_over()), None)
+                if target is not None:
+                    if target.can_focus: self.focus(target)
+                    if self._open_menu(target, mouse.x - target.x, mouse.y - target.y): return
             if input.type == "mouse_down":
                 # Clicking a focusable widget focuses it (mouse_over skips covered widgets)
                 for widget in reversed(active):

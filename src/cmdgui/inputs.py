@@ -73,6 +73,9 @@ KEY_NAMES = {
     "A": "up", "B": "down", "C": "right", "D": "left", "H": "home", "F": "end", "Z": "shift_tab",
     "1~": "home", "2~": "insert", "3~": "delete", "4~": "end", "5~": "page_up", "6~": "page_down",
     "7~": "home", "8~": "end",
+    "P": "f1", "Q": "f2", "R": "f3", "S": "f4", "11~": "f1", "12~": "f2", "13~": "f3", "14~": "f4",
+    "15~": "f5", "17~": "f6", "18~": "f7", "19~": "f8", "20~": "f9", "21~": "f10", "23~": "f11",
+    "24~": "f12", "29~": "menu",
 }
 CHAR_NAMES = {"\r": "enter", "\n": "enter", "\t": "tab", "\x7f": "backspace", "\x08": "backspace",
               "\x1b": "escape", " ": "space", "\x1c": "ctrl+\\", "\x1d": "ctrl+]", "\x1e": "ctrl+^",
