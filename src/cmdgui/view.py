@@ -581,12 +581,15 @@ class View(Group):
                     if isinstance(group, Widget): hints += group._child_key_hints()
             typing = focused is not None and focused.captures_text
             dialog = any(p._dialog for p in self.popups)
+            def works(key): # the key would reach the key bindings now
+                taken = focused is not None and focused._usable and focused._claims_key(key)
+                return not (taken or (typing and len(key) == 1))
             for key, label in self._key_labels.items():
                 if key == self.quit_key or key not in self.bindings: continue
-                if dialog or (typing and len(key) == 1): continue # the key wouldn't run it now
-                hints.append((key, label))
+                if not dialog and works(key): hints.append((key, label))
             if self.quit_key and self.bindings.get(self.quit_key) == self.quit:
-                hints.append(("ctrl+c", "Quit") if typing and len(self.quit_key) == 1 else (self.quit_key, "Quit"))
+                if works(self.quit_key): hints.append((self.quit_key, "Quit"))
+                elif works("ctrl+c"): hints.append(("ctrl+c", "Quit"))
             seen = set()
             return [hint for hint in hints if not (hint[0] in seen or seen.add(hint[0]))]
 

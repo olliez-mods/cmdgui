@@ -21,6 +21,7 @@
 | `tabs` | [`Tabs`](#tabs) | Several panels or widgets in one place, with a bar to switch between them |
 | `stdout` | [`Stdout`](#stdout) | Everything your program prints |
 | `log` | [`Log`](#log) | Log messages with levels in colour, filtering and search |
+| `terminal` | [`Terminal`](#terminal) | A program running in a terminal of its own: a shell, a REPL, top, vim |
 | `key_hints` | [`KeyHints`](keys-and-focus.md#a-footer-of-the-keys-that-work) | A footer of the keys that work right now |
 | `graphics` | [`Graphics`](#graphics) | Draw in pixels: lines, shapes, curves |
 
@@ -448,6 +449,35 @@ the bottom and follows new output again.
 
 Anything written to stderr, like a traceback, is printed again after the view closes,
 so errors aren't lost.
+
+## Terminal
+
+```python
+shell = Terminal()                           # your shell ($SHELL)
+repl = Terminal([sys.executable, "-q"])      # a list runs the program directly
+build = Terminal("make 2>&1 | less")         # a string runs through your shell
+```
+
+Runs a program in a terminal of its own, inside the layout. Anything that works in a
+terminal works here, full-screen programs like `top`, `less` and `vim` included: colours,
+cursor movement, the alternative screen and wide characters are all handled. It starts
+when it's first laid out, at the right size, and the program is told when it's resized
+(by the window, or by dragging a [line](layouts.md#draggable-lines)).
+
+- Click it or Tab to it to type. While it's focused **every key goes to the program**,
+  Tab, Escape and Ctrl+C included, so press **Ctrl+]** (`release_key`) to move on, or
+  click another widget. A [`KeyHints`](keys-and-focus.md#a-footer-of-the-keys-that-work)
+  footer shows this.
+- Pasting works, and so does the mouse wheel: it scrolls back through what's scrolled off
+  the top (`scrollback`, 1000 lines), or in a full-screen program sends up/down keys.
+- `run("ls -la")` types a command and Enter; `write(text)` sends anything, as if typed.
+- `on_exit(fn(code))` is called when the program ends, which shows `[exited with code N]`.
+  `running`, `exit_code`, `restart()`, `kill()`, and `start()` to run it again.
+- `cwd`, and `env` for variables to add. `TERM` is `xterm-256color`.
+- `program_title`: the window title the program set, if any.
+- macOS and Linux only. Programs that use the mouse themselves don't get mouse clicks.
+
+See `examples/terminal.py`.
 
 ## Log
 

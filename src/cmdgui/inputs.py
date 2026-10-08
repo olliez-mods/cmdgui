@@ -75,7 +75,8 @@ KEY_NAMES = {
     "7~": "home", "8~": "end",
 }
 CHAR_NAMES = {"\r": "enter", "\n": "enter", "\t": "tab", "\x7f": "backspace", "\x08": "backspace",
-              "\x1b": "escape", " ": "space"}
+              "\x1b": "escape", " ": "space", "\x1c": "ctrl+\\", "\x1d": "ctrl+]", "\x1e": "ctrl+^",
+              "\x1f": "ctrl+_", "\x00": "ctrl+space"}
 MODIFIERS = {"2": "shift", "3": "alt", "4": "alt+shift", "5": "ctrl", "6": "ctrl+shift", "7": "ctrl+alt"}
 
 _terminal = Terminal()
@@ -168,6 +169,7 @@ def read_inputs(timeout=0.1):
             inputs.append(Input(kind, {"text": text}))
 
     while _buffer:
+        before = _buffer
         if _buffer.startswith(PASTE_START):
             end = _buffer.find(PASTE_END)
             if end < 0:
@@ -195,6 +197,10 @@ def read_inputs(timeout=0.1):
         else:
             inputs.append(_key(_char_name(_buffer[0]), _buffer[0]))
             _buffer = _buffer[1:]
+        if len(_buffer) == len(before):
+            break # nothing taken: the rest is still coming
+        if inputs and inputs[-1].type == "key":
+            inputs[-1].details["raw"] = before[:len(before) - len(_buffer)] # exactly what the terminal sent
     return inputs
 
 
