@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar, Union
-from .widgets.base import Widget, WIDGET_TYPES, Size, W
+from .widgets.base import Widget, WIDGET_TYPES, Size, W, _groups
 from .layout import pair_axis, parse_layout, parse_size, place, LayoutError
 
 G = TypeVar("G", bound="Panel")
@@ -41,10 +41,19 @@ def _min_size(widget, fit_content, bordered):
     return parse_size(width)[0], parse_size(height)[0]
 
 
-def _put(widget, x, y, width, height, framed):
+def _clip(a, b):
+    """Where two clip rectangles (x0, y0, x1, y1) overlap; None is no clip at all."""
+    if a is None: return b
+    if b is None: return a
+    return max(a[0], b[0]), max(a[1], b[1]), min(a[2], b[2]), min(a[3], b[3])
+
+
+def _put(widget, x, y, width, height, framed, clip=None, frame_clip=None):
     """Give a widget its rectangle (inside any border) and place what's inside it.
-    framed: there's a border line around it, which a panel shares with the widgets in it."""
+    framed: there's a border line around it, which a panel shares with the widgets in it.
+    clip and frame_clip: where it and its border are cut off, inside a scrolled panel."""
     widget._framed = framed
+    widget._clip, widget._parent_frame_clip = clip, frame_clip
     moved = (widget.x, widget.y, widget.width, widget.height) != (x, y, width, height)
     if moved:
         widget.x, widget.y, widget.width, widget.height = x, y, width, height
@@ -180,6 +189,9 @@ class Group():
                 raise LayoutError(f"the layout says '{name}' is a {slot.type}, "
                                   f"but it was given a {type(widget).__name__}")
             for attr, value in (slot.flags or {}).items():
+                if attr == "scrollable" and not isinstance(widget, Panel):
+                    raise LayoutError(f"'{name}' is a {type(widget).__name__}: only panels scroll with {{+s}} "
+                                      f"(put it in a Panel(scrollable=True))")
                 setattr(widget, attr, value) # the layout's flags, like {+b,w=20}
             widget._name = name
             widget._group = self
@@ -374,8 +386,13 @@ class Panel(Widget, Group):
 
     Panel is also the base for widgets that hold other widgets, like Tabs: the widgets
     are collected the same way, and a subclass overrides how they're placed and shown
-    (_children, _arrange_children, _needed_size)."""
+    (_inside, _arrange_children, _needed_size).
+
+    With scrollable=True (or {+s} in the layout) it can be shorter than its widgets need,
+    and scrolls: with the mouse wheel over it (unless what's under the mouse scrolls
+    itself, like a list), and to show whatever gets focus. scroll is how far down it is."""
     _kind = "panel"
+    scrollable: bool = False # scroll when it's shorter than its widgets need
     _auto_type = False # Panel subclasses aren't layout types by their class name
     _needs = "a layout or at least one widget" # for the error when it's empty
 
@@ -386,6 +403,11 @@ class Panel(Widget, Group):
         if border is not None: settings["border"] = border
         if title is not None: settings["title"] = title
         self._setup()
+        self.scroll = 0         # rows scrolled down, when scrollable
+        self._viewport = None   # (x, y, width, height) on screen of what shows, while scrolling
+        self._content_height = 0 # how tall its widgets need to be
+        self._inner_clip = None  # where the widgets inside are cut off (see _put)
+        self._frame_clip = None  # and their borders
         self._apply((), settings)
         self._unnamed = set() # names made up here, not shown as border titles
         if isinstance(layout, Widget):
@@ -423,7 +445,7 @@ class Panel(Widget, Group):
         return new
 
     def _copy_resets(self) -> dict:
-        return {}
+        return {"scroll": 0, "_viewport": None, "_inner_clip": None, "_frame_clip": None}
 
     def refresh(self):
         """Redraw it, and everything inside it, on the next frame."""
@@ -439,19 +461,83 @@ class Panel(Widget, Group):
 
     def _needed_size(self, fit_content, bordered):
         width, height = self._outer_size(fit_content, outer=bordered)
-        return (width - 2, height - 2) if bordered else (width, height) # bordered: our edge is the layout's border
+        if bordered: width, height = width - 2, height - 2 # our edge is the layout's border
+        if self.scrollable and not fit_content:
+            return width + 1, 1 # any height will do; and a column for the scroll bar
+        return width, height
 
     def content_size(self):
         return self._needed_size(True, self.border)
 
     def _arrange_children(self):
+        x, y, w, h = self.x, self.y, self.width, self.height
+        self._viewport = None
+        self._inner_clip, self._frame_clip = self._clip, self._parent_frame_clip
+        if self.scrollable:
+            framed = self._framed
+            self._content_height = self._outer_size(False, outer=framed)[1] - (2 if framed else 0)
+            if self._content_height > h: # too tall: lay it all out, and show a window onto it
+                w = max(0, w - 1) # the scroll bar's column, on the right
+                most = self._content_height - h
+                if not 0 <= self.scroll <= most: object.__setattr__(self, "scroll", max(0, min(self.scroll, most)))
+                self._viewport = (x, y, w, h)
+                self._inner_clip = _clip(self._clip, (x, y, x + w, y + h))
+                # Borders inside can join the panel's own border down the left, and along the
+                # top or bottom only while scrolled right to that end (so nothing scrolled past
+                # draws on it); the scroll bar's column is left to the scroll bar
+                left = 1 if framed else 0
+                top = 1 if framed and self.scroll == 0 else 0
+                bottom = 1 if framed and self.scroll >= most else 0
+                self._frame_clip = _clip(self._parent_frame_clip, (x - left, y - top, x + w, y + h + bottom))
+                y, h = y - self.scroll, self._content_height
+            elif self.scroll:
+                object.__setattr__(self, "scroll", 0)
         if self._framed: # the border round it is the edge of our layout, shared with the widgets inside
-            self._arrange(self.x - 1, self.y - 1, self.width + 2, self.height + 2, outer=True)
+            self._arrange(x - 1, y - 1, w + 2, h + 2, outer=True)
         else:
-            self._arrange(self.x, self.y, self.width, self.height)
+            self._arrange(x, y, w, h)
 
     def _draw_area(self):
+        if self._viewport: # the scroll bar, in the last column
+            return self.width - 1, 0, 1, self.height
         return 0, 0, 0, 0 # the widgets inside draw everything
+
+    # --- Scrolling ---
+    def _scroll_bar(self):
+        """(top, size) of the scroll bar's thumb, in rows of the viewport, or None."""
+        if not self._viewport: return None
+        rows, total = self._viewport[3], self._content_height
+        if rows <= 0: return None
+        size = max(1, round(rows * rows / total))
+        top = round(self.scroll / max(1, total - rows) * (rows - size))
+        return top, size
+
+    def draw(self, c):
+        bar = self._scroll_bar()
+        if bar is None: return
+        top, size = bar
+        for row in range(c.height):
+            on = top <= row < top + size
+            c.put(0, row, "█" if on else "░", self.theme("scrollbar" if on else "scrollbar_track"))
+
+    def scroll_by(self, rows: int) -> bool:
+        """Scroll down (or up, for negative rows), if it's scrolling. True if it moved."""
+        if not self._viewport: return False
+        scroll = max(0, min(self._content_height - self._viewport[3], self.scroll + rows))
+        if scroll == self.scroll: return False
+        self.scroll = scroll
+        if self.view: self.view.relayout()
+        return True
+
+    def _reveal(self, widget):
+        """Scroll so a widget inside is in view (as much of it as fits)."""
+        if not self._viewport: return
+        frames = widget._group.frames if widget._group is not None else {}
+        bx, by, bw, bh = frames.get(widget) or (widget.x, widget.y, widget.width, widget.height)
+        top = by - self._viewport[1] + self.scroll # in rows of the content
+        rows = self._viewport[3]
+        if top < self.scroll: self.scroll_by(top - self.scroll)
+        elif top + min(bh, rows) > self.scroll + rows: self.scroll_by(top + min(bh, rows) - self.scroll - rows)
 
     # --- The layout inside ---
     def _outer_size(self, fit_content, outer):
@@ -471,7 +557,8 @@ class Panel(Widget, Group):
             # Clip to the inside of the box, in case it's too small
             rw = max(0, min(rw, w - inner - rx))
             rh = max(0, min(rh, h - inner - ry))
-            _put(widget, x + rx, y + ry, rw, rh, framed=widget in self.frames)
+            _put(widget, x + rx, y + ry, rw, rh, framed=widget in self.frames,
+                 clip=self._inner_clip, frame_clip=self._frame_clip)
 
 
 class Popup(Panel):

@@ -28,6 +28,7 @@ class Terminal(Widget):
     another widget. Scroll back with the mouse wheel. terminal.run("ls") types a command
     and Enter, write() sends anything, and on_exit(fn(code)) is told when the program ends.
     macOS and Linux only."""
+    _wheel = True # scrolls itself
     command: Union[str, list, None] = field(default=None, kw_only=False)
     cwd: Optional[str] = None
     env: Optional[dict] = None    # added to (or replacing) your environment's variables

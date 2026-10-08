@@ -8,6 +8,7 @@ from .base import Widget
 class Stdout(Widget):
     """Shows everything printed (and stderr, in red). Scroll with the mouse wheel, or
     the arrow keys, Page Up/Down and Home/End when focused. End follows new output again."""
+    _wheel = True # scrolls itself
     max_lines: int = 500
     border = True
     preferred_width = "10+"

@@ -72,6 +72,35 @@ also how a whole group of widgets can be one side of a [draggable line](#draggab
 
 Panels also go in [tabs](widgets.md#tabs), and [popups](popups.md) are panels that float.
 
+## Scrolling panels
+
+A panel with `scrollable=True`, or `{+s}` on its cell, can be shorter than its widgets
+need, and scrolls:
+
+```python
+class App(View):
+    layout = """
+        form{+b,+s}  log{+b}
+    """
+    form = LongForm()    # a Panel with more rows than fit
+    log = Stdout()
+```
+
+- It asks the layout for no particular height, so it takes what's left over. When its
+  widgets need more, they're laid out at their full height and the panel shows part of
+  them, with a scroll bar in its last column showing where you are.
+- The mouse wheel over it scrolls it, unless what's under the mouse scrolls by itself (a
+  list, a log, a text area, Markdown): that gets the wheel, as in a browser.
+- When a widget inside gets focus (Tab, or a click), it scrolls so that widget shows.
+- Widgets cut off at its edges are cut off properly: they draw, get clicks and have
+  borders only where they show. Borders inside still join the panel's own.
+- `panel.scroll` is how far down it is, in rows; `panel.scroll_by(rows)` scrolls from
+  code. It only scrolls up and down.
+- `{+s}` is for panels; to scroll a single widget that doesn't scroll by itself, put it in
+  one: `Panel(widget, scrollable=True)`.
+
+See `examples/scrolling.py`.
+
 ## Flags
 
 Put flags in `{}` on the end of a widget's first cell, separated by commas (no spaces,
@@ -95,6 +124,7 @@ layout = """
 | `+v` / `-v` | `visible` | shown / [hidden](#hiding-widgets) |
 | `+e` / `-e` | `enabled` | enabled / disabled (greyed out) |
 | `+f` / `-f` | `tab_stop` | in Tab order / skipped by Tab (a click still focuses it) |
+| `+s` | `scrollable` | a [panel](#scrolling-panels) scrolls when it's shorter than its widgets need |
 | `t=my_title` | `title` | the border title; `_` shows as a space |
 
 Flags win over the widget's own settings, and they're ordinary attributes afterwards:

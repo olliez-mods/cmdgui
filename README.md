@@ -54,13 +54,13 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 ## What's in it
 
 - **Layouts drawn as text**: each word is a grid cell, `-` and `|` stretch a widget
-  across cells, and borders between neighbours join up.
+  across cells, and borders between neighbours join up. Panels group widgets, can be
+  scrolled when they don't fit, and lines between widgets can be made draggable.
 - **Widgets**: text, labels, buttons, one-line and multi-line text boxes (with password
   mode and history), checkboxes, toggles, radio buttons, dropdowns, sliders, progress
   bars, menus, folding trees, tables, a calendar and date picker, tabs, a log viewer with
   levels and search, a box that shows everything you print, a terminal that runs a shell
-  or any program inside the layout, and a pixel canvas with lines, shapes and curves. Panels group widgets into reusable pieces, and lines between
-  widgets can be made draggable.
+  or any program inside the layout, and a pixel canvas with lines, shapes and curves.
 - **Styled text**: `"[bold red]Error:[/] couldn't open [cyan]notes.txt[/]"` in labels,
   buttons and text, and Markdown documents with `Text(markdown=True)`.
 - **Text boxes that behave**: select with the mouse or Shift, copy, cut and paste,
@@ -95,4 +95,5 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
 The [examples](https://github.com/olliez-mods/cmdgui/tree/main/examples) folder has a
 widget demo, a dashboard, popups, dialogs that wait for an answer, tabs, a console, a
 file browser, pixel graphics, a log viewer with draggable lines, date pickers, a shell and
-a Python REPL side by side, a reader for these docs, and an inline progress display.
+a Python REPL side by side, a reader for these docs, a long form that scrolls, a settings
+form saved as JSON, progress bars driven by loops, and an inline progress display.

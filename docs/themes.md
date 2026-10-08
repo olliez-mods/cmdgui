@@ -44,6 +44,7 @@ view = View("...", theme={
 | `md_code`, `md_code_block` | `` `code` `` in a line, and code blocks | yellow; light grey on dark grey |
 | `md_quote`, `md_quote_text` | the bar beside a `>` quote (and images' alt text), and the quote's text | bright black, italic |
 | `md_link`, `md_bullet`, `md_rule`, `md_table_header` | links, list bullets and numbers, `---` and table lines, table headers | underlined blue, cyan, bright black, bold |
+| `scrollbar`, `scrollbar_track` | a [scrolling panel](layouts.md#scrolling-panels)'s scroll bar: where you are, and the rest | cyan, bright black |
 | `hint_key`, `hint` | a key in a [`KeyHints`](keys-and-focus.md#a-footer-of-the-keys-that-work) footer, and what it does | bold cyan, plain |
 | `toast_info`, `toast_ok`, `toast_warning`, `toast_error` | the border and icon of a [notification](popups.md#notifications) | cyan, green, bold yellow, bold red |
 | `disabled` | replaces every style in a disabled widget | bright black |

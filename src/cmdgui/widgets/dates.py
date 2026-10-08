@@ -33,6 +33,7 @@ class Calendar(Widget):
     """A month of days to pick from. Click a day, or move with the arrow keys
     (Page Up/Down for the month before or after) and press Enter. Click the arrows
     either side of the month's name, or scroll, to change month."""
+    _wheel = True # scrolls itself
     form_input = True
     value: Optional[date] = field(default=None, kw_only=False) # the chosen day
     min_date: Optional[date] = None # days before this can't be chosen

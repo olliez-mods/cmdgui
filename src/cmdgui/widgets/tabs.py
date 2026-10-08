@@ -138,11 +138,13 @@ class Tabs(Panel):
         else:
             self._box = (self.x, self.y + 1, self.width, max(0, self.height - 1))
         x, y, w, h = self._box
+        self._inner_clip, self._frame_clip = self._clip, self._parent_frame_clip # in a scrolled panel
         for tab in self.named.values():
             if self._boxed(tab):
-                _put(tab, x + 1, y + 1, max(0, w - 2), max(0, h - 2), framed=True)
+                _put(tab, x + 1, y + 1, max(0, w - 2), max(0, h - 2), framed=True,
+                     clip=self._clip, frame_clip=self._parent_frame_clip)
             else:
-                _put(tab, x, y, w, h, framed=False)
+                _put(tab, x, y, w, h, framed=False, clip=self._clip, frame_clip=self._parent_frame_clip)
         self._set_frames()
 
     def _set_frames(self):

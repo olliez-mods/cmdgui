@@ -38,6 +38,9 @@ class Text(Widget):
     def focusable(self): # Markdown can be focused to scroll it with the keys
         return self.markdown
 
+    def _takes_wheel(self):
+        return self.markdown
+
     def on_link(self, callback: Callable[[str], Any]): # called with the url when a Markdown link is clicked
         self.link_callback = callback
 
@@ -445,6 +448,7 @@ class TextInput(_Editable, Widget):
 class TextArea(_Editable, Widget):
     """A multi-line text box. Long lines wrap. Enter adds a new line. Drag or
     Shift+arrows to select, Ctrl+C / Ctrl+X / Ctrl+V to copy, cut and paste."""
+    _wheel = True # scrolls itself
     form_input = True
     value: str = field(default="", kw_only=False)
     placeholder: str = ""

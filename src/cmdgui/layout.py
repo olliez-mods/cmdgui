@@ -18,8 +18,9 @@ class LayoutError(ValueError):
 # The border styles, for b=style
 BORDER_STYLES = ("single", "rounded", "heavy", "double", "ascii")
 # Flags that switch something on (+) or off (-), and the widget attribute they set
-SWITCHES = {"b": "border", "e": "enabled", "f": "tab_stop", "v": "visible"}
-FLAG_HELP = "+b/-b border, b=style, w=size, h=size, +e/-e enabled, +f/-f in Tab order, +v/-v shown, t=title"
+SWITCHES = {"b": "border", "e": "enabled", "f": "tab_stop", "v": "visible", "s": "scrollable"}
+FLAG_HELP = ("+b/-b border, b=style, w=size, h=size, +e/-e enabled, +f/-f in Tab order, +v/-v shown, "
+             "+s scrolls (panels), t=title")
 
 
 def parse_flags(text, where=""):

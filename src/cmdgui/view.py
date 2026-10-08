@@ -47,29 +47,38 @@ def teardown(inline=False, stderr_shown=0):
         sys.stderr.flush()
 
 
-def _draw_borders(canvas, frames, titles, focused, theme, gaps=None, styles=None):
+def _draw_borders(canvas, frames, titles, focused, theme, gaps=None, styles=None, clips=None):
     """Draw every border at once, so shared edges are one line and meeting
     lines get the right junction (├ ┬ ┼ ...). The focused frame is drawn in
     the focus colour. titles: frame key -> title (or None). gaps: (x, y) ->
     directions to leave out there, e.g. the opening under an active tab.
-    styles: frame key -> border style ("single" if missing)."""
+    styles: frame key -> border style ("single" if missing). clips: frame key ->
+    (x0, y0, x1, y1) it's cut off at, inside a scrolled panel."""
     links = {} # (x, y) -> directions that cell connects to
     kinds = {} # (x, y) -> the border style drawn there, the highest ranked of the frames on it
+    clips = clips or {}
+    def shows(x, y):
+        return clip is None or (clip[0] <= x < clip[2] and clip[1] <= y < clip[3])
     def link(x, y, direction):
         links[(x, y)] = links.get((x, y), 0) | direction
         if STYLE_RANK[kind] > STYLE_RANK[kinds.get((x, y), "ascii")] or (x, y) not in kinds:
             kinds[(x, y)] = kind
     for key, (x, y, w, h) in frames.items():
         kind = (styles or {}).get(key) or "single"
+        clip = clips.get(key)
         right, bottom = x + w - 1, y + h - 1
+        # Each piece of line joins two cells; in a scrolled panel, only pieces with both
+        # ends in view are drawn, so a line running out of view ends at the panel's edge
         for cx in range(x, right):
             for cy in (y, bottom):
-                link(cx, cy, RIGHT)
-                link(cx + 1, cy, LEFT)
+                if shows(cx, cy) and shows(cx + 1, cy):
+                    link(cx, cy, RIGHT)
+                    link(cx + 1, cy, LEFT)
         for cy in range(y, bottom):
             for cx in (x, right):
-                link(cx, cy, DOWN)
-                link(cx, cy + 1, UP)
+                if shows(cx, cy) and shows(cx, cy + 1):
+                    link(cx, cy, DOWN)
+                    link(cx, cy + 1, UP)
     for cell, directions in (gaps or {}).items():
         if cell in links:
             links[cell] &= ~directions
@@ -78,9 +87,10 @@ def _draw_borders(canvas, frames, titles, focused, theme, gaps=None, styles=None
         canvas.put(x, y, LINE_STYLES[kinds[(x, y)]][directions], theme["border"])
 
     def restyle(x, y, s):
-        if 0 <= x < canvas.width and 0 <= y < canvas.height:
+        if 0 <= x < canvas.width and 0 <= y < canvas.height and (x, y) in links:
             canvas.styles[y][x] = s
     for name, (x, y, w, h) in frames.items():
+        clip = clips.get(name)
         if name == focused:
             s = theme["border_focus"]
             for cx in range(x, x + w):
@@ -91,7 +101,7 @@ def _draw_borders(canvas, frames, titles, focused, theme, gaps=None, styles=None
                 restyle(x + w - 1, cy, s)
         # Title on the top edge, stopping before any junction
         title = titles.get(name)
-        if not title: continue
+        if not title or (clip is not None and not clip[1] <= y < clip[3]): continue # scrolled out of view
         title_style = theme["border_focus"] if name == focused else theme["title"]
         cx = x + 2
         for char in f" {title} ":
@@ -353,6 +363,25 @@ class View(Group):
                       title=title, on_close=on_close)
         ok.on_click(popup.close)
         return self.show(popup)
+
+    # --- Scrolling panels ---
+
+    def _wheel_to_panel(self, active, input):
+        """The mouse wheel over a scrolling panel scrolls it, unless what's under the mouse
+        scrolls itself (a list, a log): the innermost one gets it. True if a panel took it."""
+        target = next((w for w in reversed(active) if w._usable and w.mouse_over()), None)
+        if target is None: return False
+        for widget in [target] + [g for g in _groups(target) if isinstance(g, Widget)]:
+            if widget._takes_wheel(): return False # it scrolls itself
+            if isinstance(widget, Panel) and widget._viewport:
+                widget.scroll_by(-3 if input.details["direction"] == "up" else 3)
+                return True
+        return False
+
+    def _reveal(self, widget):
+        """Scroll the scrolling panels a widget is in so it shows."""
+        for group in _groups(widget):
+            if isinstance(group, Panel): group._reveal(widget)
 
     # --- Right-click menus ---
 
@@ -627,6 +656,7 @@ class View(Group):
             if widget:
                 widget.refresh()
                 widget.on_focus()
+                self._reveal(widget) # in a scrolled panel: scroll to it
         self._wake()
 
     def focus_next(self, step: int = 1) -> None:
@@ -952,6 +982,7 @@ class View(Group):
                 elif top.modal:
                     return
             active = self._active_widgets()
+            if input.type == "mouse_scroll" and self._wheel_to_panel(active, input): return
             if input.type == "mouse_down" and input.details.get("button") == 2:
                 # A right-click: the menu of the innermost widget under the mouse (or the panels it's in)
                 target = next((w for w in reversed(active) if w._usable and w.mouse_over()), None)
@@ -1023,7 +1054,19 @@ class View(Group):
     @staticmethod
     def _blit(screen, widget):
         dx, dy, _, _ = widget._draw_area()
-        screen.blit(widget._canvas, widget.x + dx, widget.y + dy)
+        canvas, x, y = widget._canvas, widget.x + dx, widget.y + dy
+        if widget._clip is not None: # in a scrolled panel: only the part in view
+            x0, y0, x1, y1 = widget._clip
+            top, left = max(0, y0 - y), max(0, x0 - x)
+            bottom, right = min(canvas.height, y1 - y), min(canvas.width, x1 - x)
+            if top >= bottom or left >= right: return
+            if (top, left, bottom, right) != (0, 0, canvas.height, canvas.width):
+                part = Canvas(0, 0)
+                part.width, part.height = right - left, bottom - top
+                part.chars = [row[left:right] for row in canvas.chars[top:bottom]]
+                part.styles = [row[left:right] for row in canvas.styles[top:bottom]]
+                canvas, x, y = part, x + left, y + top
+        screen.blit(canvas, x, y)
 
     def _apply_layout(self):
         """Give layout widgets their rectangles for the current screen size."""
@@ -1050,6 +1093,7 @@ class View(Group):
                 widget = self.named[name]
                 widget.x, widget.y, widget.width, widget.height = x, y, w, h
                 widget._framed = widget in self.frames
+                widget._clip = widget._parent_frame_clip = None
                 widget._arrange_children()
                 widget.on_resize()
         for widget in self.widgets:
@@ -1071,7 +1115,7 @@ class View(Group):
         """Draw the borders of a view or popup and of the shown panels inside it, all
         at once so lines that meet join up. Titles: a widget's title (or its name,
         outside popups); a popup's title on its own border."""
-        frames, titles, gaps, styles = {}, {}, {}, {}
+        frames, titles, gaps, styles, clips = {}, {}, {}, {}, {}
         popup = layer if isinstance(layer, Popup) else None
         if popup is not None and popup.border:
             frames[popup] = (popup.x, popup.y, popup.width, popup.height)
@@ -1080,14 +1124,16 @@ class View(Group):
             for key, frame in group.frames.items():
                 shapes, shape_gaps = key._border_shapes(frame) # usually just the frame itself
                 frames.update(shapes)
-                for shape in shapes: styles[shape] = group._frame_style(shape)
+                for shape in shapes:
+                    styles[shape] = group._frame_style(shape)
+                    clips[shape] = getattr(group, "_frame_clip", None) # cut off in a scrolled panel
                 for cell, directions in shape_gaps.items():
                     gaps[cell] = gaps.get(cell, 0) | directions
                 # Nothing if it draws something else in place of its frame
                 titles[key] = group._frame_title(key) if shapes.get(key) == frame else None
         focused = self.focused if self.focused is not None and self.focused._popup is popup else None
         styles = {key: styles.get(key) or self.border_style for key in frames}
-        _draw_borders(canvas, frames, titles, focused, self.theme, gaps, styles)
+        _draw_borders(canvas, frames, titles, focused, self.theme, gaps, styles, clips)
         for group in self._layer_groups(layer):
             marks = [widget._border_marks() for widget in group.widgets] + [self._line_marks(group, canvas)]
             for (x, y), (char, s) in (item for widget_marks in marks for item in widget_marks.items()):
@@ -1129,6 +1175,8 @@ class View(Group):
         modal = next((i for i in range(len(self.popups) - 1, -1, -1) if self.popups[i].modal), None)
         if modal is not None and (layer is None or self.popups.index(layer) < modal): return None
         for group in self._layer_groups(layer or self):
+            clip = getattr(group, "_frame_clip", None)
+            if clip is not None and not (clip[0] <= x < clip[2] and clip[1] <= y < clip[3]): continue
             for index, (lx, ly, lw, lh) in group._lines.items():
                 if lx <= x < lx + lw and ly <= y < ly + lh: return group, index
         return None

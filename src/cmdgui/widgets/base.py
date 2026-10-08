@@ -92,6 +92,8 @@ DEFAULT_THEME = {
     "md_bullet": style(fg="cyan"),
     "md_rule": style(fg="bright_black"),       # --- lines, and table lines
     "md_table_header": style(bold=True),
+    "scrollbar": style(fg="cyan"),             # a scrolling panel's scroll bar: the part showing where you are
+    "scrollbar_track": style(fg="bright_black"), # and the rest of it
     "hint_key": style(fg="cyan", bold=True),   # a key in a KeyHints footer
     "hint": "",                                # what the key does
 }
@@ -129,6 +131,7 @@ class Widget(_FieldWidget):
     focusable = False     # can be focused with Tab or a click, and then gets key presses
     captures_text = False # when focused, typed characters go to it before key bindings
     form_input = False    # its value goes in its panel's (and view's) values; see Group.values
+    _wheel = False        # it scrolls with the mouse wheel itself, so a scrolling panel it's in doesn't
 
     _auto_type = True     # usable in layout strings by its class name; panels set this to False
 
@@ -162,6 +165,8 @@ class Widget(_FieldWidget):
         self._popup: Any = None # the Popup this widget is in, if any (even inside a tab of it)
         self._group: Any = None # the View or Panel (or Tabs, or Popup) it's in
         self._framed = False    # whether the layout gave it a border
+        self._clip = None       # (x0, y0, x1, y1) on screen it's cut off at, in a scrolled panel; None for none
+        self._parent_frame_clip = None # the same for the borders of the panel it's in
         self._menu: list = []   # right-click items from menu_item(): (name, on_click, show)
         for name, info in type(self)._fields.items():
             value = info.default_factory() if info.default_factory else getattr(type(self), name, None)
@@ -213,7 +218,8 @@ class Widget(_FieldWidget):
         for key, value in vars(new).items():
             if isinstance(value, (list, dict, set)):
                 new.__dict__[key] = copy.copy(value)
-        new.__dict__.update(view=None, _name=None, _popup=None, _group=None, _framed=False,
+        new.__dict__.update(view=None, _name=None, _popup=None, _group=None, _framed=False, _clip=None,
+                            _parent_frame_clip=None,
                             _canvas=None, _dirty=True)
         return new
 
@@ -280,6 +286,7 @@ class Widget(_FieldWidget):
         """True if the mouse is inside this widget (and not on a popup covering it)."""
         x, y = self.mouse_pos()
         if not (0 <= x < self.width and 0 <= y < self.height): return False
+        if self._clip is not None and not _inside(self._clip, mouse.x, mouse.y): return False # scrolled out of view
         return self.view is None or self.view._layer_at(mouse.x, mouse.y) is self._popup
 
     def content_size(self) -> tuple[Optional[int], Optional[int]]:
@@ -358,6 +365,10 @@ class Widget(_FieldWidget):
         """Keys that work while a widget inside this one is focused (see _child_key)."""
         return []
 
+    def _takes_wheel(self) -> bool:
+        """True if it scrolls with the mouse wheel itself, so a scrolling panel around it leaves the wheel to it."""
+        return self._wheel
+
     def _claims_key(self, key) -> bool:
         """True to get this key while focused before key bindings and Tab do, e.g. a text
         box copying its selection with Ctrl+C (which otherwise quits)."""
@@ -415,6 +426,11 @@ def _groups(widget):
     while group is not None:
         yield group
         group = getattr(group, "_group", None) # a view has none
+
+
+def _inside(clip, x, y):
+    x0, y0, x1, y1 = clip
+    return x0 <= x < x1 and y0 <= y < y1
 
 
 def _call(callback, *args):

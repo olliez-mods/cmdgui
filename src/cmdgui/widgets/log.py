@@ -39,6 +39,7 @@ class Log(Widget):
         logging.getLogger().addHandler(log.handler())   # Python's logging, too
 
     Safe to add to from any thread."""
+    _wheel = True # scrolls itself
     level: Level = "debug" # hide messages less important than this
     search: str = ""       # show only messages containing this (ignoring case), highlighted
     show_time: bool = True

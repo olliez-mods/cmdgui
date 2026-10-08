@@ -9,6 +9,7 @@ from .text import _styled
 
 class Menu(Widget):
     """A list to pick from with the arrow keys and Enter, or a click."""
+    _wheel = True # scrolls itself
     items: list = field(default_factory=list, kw_only=False)
     selected: int = 0
     select_callback: Optional[Callable[[int, Any], Any]] = field(default=None, alias="on_select")
@@ -89,6 +90,7 @@ class Tree(Widget):
         Tree({"src": {"main.py": None, "util.py": None}, "docs": ["intro.md"]})
 
     A node is identified by its path, a tuple of labels: ("src", "main.py")."""
+    _wheel = True # scrolls itself
     nodes: Any = field(default_factory=dict, kw_only=False)
     selected: Optional[tuple] = None # path of the highlighted node
     select_callback: Optional[Callable[[tuple], Any]] = field(default=None, alias="on_select")
@@ -253,6 +255,7 @@ class Table(Widget):
     the number keys 1-9 while focused.
 
     Indexes are always into rows, as you gave them, whatever the sorting."""
+    _wheel = True # scrolls itself
     columns: list = field(default_factory=list, kw_only=False) # header names
     rows: list = field(default_factory=list)                   # lists of values
     selected: Optional[int] = None # index in rows of the highlighted row, if any
