@@ -46,6 +46,34 @@ Callbacks like `on_click` run on the view's thread. Keep them quick: while one i
 running, the view can't redraw or handle input. Start a `threading.Thread` for
 slow work, and set widget attributes from it as it goes.
 
+## Form values
+
+Every input has a `value`, and a view or panel gathers them all into a dict:
+
+```python
+view.values           # {"name": "Ada", "debug": True, "options": {"size": 12}}
+view.values = saved   # fill them in again
+view.on_values_change(lambda values: save(values))
+```
+
+- The inputs are `TextInput`, `TextArea`, `Checkbox`, `Toggle`, `RadioGroup`, `Select`,
+  `Slider`, `Calendar` and `DatePicker`, by their names. Labels, buttons, lists and tables
+  aren't in it.
+- A [panel](layouts.md#panels-in-a-layout) or `Tabs` inside gives a dict of its own, so
+  the shape follows the code: `view.values["settings"]["profile"]["name"]` is
+  `view.settings.profile.name.value`. Every panel has `values` too.
+- Setting `values` changes only the names you give, and like setting a widget's `value`
+  it doesn't call their `on_change`. A name that isn't there is an error, so typos
+  don't go unnoticed.
+- `on_values_change(fn(values))` is called whenever an input inside changes, at the same
+  times as the input's own `on_change`: for saving as you go, or showing that there are
+  unsaved changes (`view.values != saved`).
+- The values are plain Python: strings, numbers, booleans, the chosen option, and dates.
+  `json.dumps(values, default=str)` saves dates as `"2026-01-05"`, and setting that string
+  back gives a date again.
+
+See `examples/form.py`.
+
 ## Timers
 
 ```python

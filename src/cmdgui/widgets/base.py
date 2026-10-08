@@ -128,6 +128,7 @@ class Widget(_FieldWidget):
     type_name = None      # name used in layouts, defaults to the class name in snake_case
     focusable = False     # can be focused with Tab or a click, and then gets key presses
     captures_text = False # when focused, typed characters go to it before key bindings
+    form_input = False    # its value goes in its panel's (and view's) values; see Group.values
 
     _auto_type = True     # usable in layout strings by its class name; panels set this to False
 
@@ -234,6 +235,13 @@ class Widget(_FieldWidget):
             else:
                 self.refresh()
             if key in ("enabled", "visible"): self._drop_focus()
+
+    def _value_changed(self):
+        """An input's value changed, as its on_change is told: tell the panels and the view
+        it's in, for their on_values_change."""
+        for group in _groups(self):
+            callback = getattr(group, "_values_callback", None)
+            if callback: callback(group.values)
 
     def _drop_focus(self):
         """Hidden or disabled: give up focus, if this or a widget inside it has it."""

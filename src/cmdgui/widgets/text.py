@@ -237,7 +237,9 @@ class _Editable:
         changed = value != self.value
         self.anchor = None
         self.value, self.cursor = value, cursor
-        if(changed): _call(self.change_callback, self.value)
+        if(changed):
+            _call(self.change_callback, self.value)
+            self._value_changed()
 
     def _insert(self, text):
         """Type or paste text, in place of the selection if there is one."""
@@ -303,6 +305,7 @@ class _Editable:
 class TextInput(_Editable, Widget):
     """A one-line text box. Click or Tab to it, then type. Drag or Shift+arrows to
     select, Ctrl+C / Ctrl+X / Ctrl+V to copy, cut and paste."""
+    form_input = True
     value: str = field(default="", kw_only=False)
     placeholder: str = ""      # shown while it's empty and not focused
     prefix: str = ""           # shown dim before the text, but not part of it, e.g. "https://"
@@ -442,6 +445,7 @@ class TextInput(_Editable, Widget):
 class TextArea(_Editable, Widget):
     """A multi-line text box. Long lines wrap. Enter adds a new line. Drag or
     Shift+arrows to select, Ctrl+C / Ctrl+X / Ctrl+V to copy, cut and paste."""
+    form_input = True
     value: str = field(default="", kw_only=False)
     placeholder: str = ""
     change_callback: Optional[Callable[[str], Any]] = field(default=None, alias="on_change")

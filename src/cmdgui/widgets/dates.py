@@ -12,10 +12,12 @@ WEEKS = 6       # always 6 rows, so the height doesn't change from month to mont
 
 
 def _as_date(value):
-    """A date, from a date or datetime (or None)."""
+    """A date, from a date, a datetime or an ISO string like "2026-01-05" (as saved in
+    JSON), or None."""
     if value is None: return None
     if isinstance(value, datetime.datetime): return value.date()
     if isinstance(value, date): return value
+    if isinstance(value, str): return date.fromisoformat(value)
     raise TypeError(f"expected a date, got {type(value).__name__}")
 
 
@@ -31,6 +33,7 @@ class Calendar(Widget):
     """A month of days to pick from. Click a day, or move with the arrow keys
     (Page Up/Down for the month before or after) and press Enter. Click the arrows
     either side of the month's name, or scroll, to change month."""
+    form_input = True
     value: Optional[date] = field(default=None, kw_only=False) # the chosen day
     min_date: Optional[date] = None # days before this can't be chosen
     max_date: Optional[date] = None
@@ -72,6 +75,7 @@ class Calendar(Widget):
         if day != self.value:
             self.value = day
             _call(self.change_callback, day)
+            self._value_changed()
 
     def show_month(self, year: int, month: int) -> None:
         """Show a month without changing the chosen day. Months past 12 (or below 1)
@@ -156,6 +160,7 @@ class Calendar(Widget):
 class DatePicker(Widget):
     """Shows a date, and opens a Calendar to pick one when clicked (or Enter/Space
     when focused). Up/down change it by a day without opening it."""
+    form_input = True
     value: Optional[date] = field(default=None, kw_only=False)
     placeholder: str = "pick a date" # shown when there's no date yet
     format: str = "%Y-%m-%d"         # how the date is shown, for strftime
@@ -192,6 +197,7 @@ class DatePicker(Widget):
         if day != self.value:
             self.value = day
             _call(self.change_callback, day)
+            self._value_changed()
 
     def open(self):
         """Show a calendar below the widget (above if there's no room)."""

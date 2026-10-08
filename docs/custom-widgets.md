@@ -64,6 +64,7 @@ These are plain class attributes, not constructor arguments:
 | `type_name` | the name used in layouts; defaults to the class name in snake_case |
 | `focusable` | can be focused with Tab or a click, and then gets key presses |
 | `captures_text` | when focused, typed characters go to it before key bindings (text boxes) |
+| `form_input` | its `value` goes in its panel's and view's [values](index.md#form-values). Give it a `value` (a property with a setter is fine), and call `self._value_changed()` when the user changes it, so `on_values_change` hears about it |
 
 ## Methods to override
 

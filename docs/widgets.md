@@ -247,7 +247,8 @@ Checkbox("Remember me", checked=True, on_change=lambda checked: print(checked))
 Toggle("Dark mode")
 ```
 
-`text`, `checked`, `on_change(fn(checked))`, and `toggle()` to flip it from code.
+`text`, `checked` (or `value`, the same thing), `on_change(fn(checked))`, and `toggle()`
+to flip it from code.
 `Toggle` is drawn as an on/off switch, and works the same.
 
 ## RadioGroup
@@ -257,7 +258,8 @@ RadioGroup(["small", "medium", "large"], selected=1,
            on_change=lambda index, option: print(option))
 ```
 
-`options`, `selected` (an index), `value` (the selected option), `horizontal=True` to
+`options`, `selected` (an index), `value` (the selected option; set it to an option to
+select that one), `horizontal=True` to
 put the options side by side, `on_change(fn(index, option))`, and `select(index)`.
 The arrow keys change the choice, or click one.
 
@@ -276,7 +278,7 @@ Up/down change the choice without opening the list, and Home/End jump to the fir
 last option.
 
 `options`, `selected` (an index, or `None` for nothing chosen yet), `value` (the chosen
-option), `placeholder` (shown when nothing is chosen), `on_change(fn(index, option))`.
+option; set it to an option, or `None`), `placeholder` (shown when nothing is chosen), `on_change(fn(index, option))`.
 `select(index)`, `open()` and `close()` do those from code, and `is_open` says whether
 the list is showing.
 
@@ -300,8 +302,9 @@ A `DatePicker` is one line, like a [`Select`](#select): it shows the date, and o
 calendar below it when clicked (or with Enter or Space while focused). Up/down change it
 by a day without opening it.
 
-- `value`: the chosen `date`, or `None` (a `datetime` works too, and is turned into its
-  date). Set it, or call `choose(day)` to also call `on_change`.
+- `value`: the chosen `date`, or `None` (a `datetime` or an ISO string like
+  `"2026-01-05"` works too, and is turned into a date). Set it, or call `choose(day)` to
+  also call `on_change`.
 - `min_date`, `max_date`: days outside these are greyed out and can't be chosen.
 - `first_weekday`: `0` for weeks starting on Monday (the default), `6` for Sunday.
 - `on_change(fn(date))`: the chosen day changed (by the arrow keys too, in a calendar).
@@ -332,9 +335,24 @@ the ends. `on_change` is only called when the user changes it, not when you set
 ```python
 bar = ProgressBar(0.25)
 bar.value = 0.5
+
+for path in bar.track(files):    # the bar keeps up: 12/40 · 8s left
+    copy(path)
 ```
 
-`value` from 0 to 1, and `show_percent` to show or hide the percentage.
+`value` from 0 to 1, `show_percent` to show or hide the percentage, and `label` for text
+of your own in its place.
+
+`track(items, total=None)` goes through items for you, moving the bar along with how many
+are done and about how long is left, and when it's finished how long it took. It's an
+ordinary loop in your program, so there's nothing else to wire up.
+
+- `total` is how many there are, for a generator that can't say. Without one, a block
+  slides along the bar and the label just counts.
+- Updates are limited to about 20 a second, so a fast loop isn't slowed down.
+- `break` out early and the bar stays where it got to.
+
+See `examples/progress.py`.
 
 ## Menu
 

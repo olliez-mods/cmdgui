@@ -74,6 +74,10 @@ editor knows `view.start` is a `Button` — autocomplete and type checking work.
   between widgets, your own key bindings, and a footer that shows the keys that work
   right now.
 - **Timers**: `view.every(1, tick)` and `view.after(5, fn)`, no threads needed.
+- **Forms**: `view.values` is every input's value as a dict (panels nested inside), and
+  setting it fills them back in, so saving settings is one `json.dump`.
+- **Progress from a loop**: `for f in view.bar.track(files): ...` shows how many are done and
+  how long is left.
 - **Themes**: restyle any part, with 73 named colors, the 256-color palette, or exact
   hex colors.
 - **Your own widgets**: subclass `Widget`, draw into a canvas, and it works in layouts.

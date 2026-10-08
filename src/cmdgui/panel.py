@@ -141,6 +141,7 @@ class Group():
         self._lines = {}     # edge index -> (x, y, w, h) on screen
         self._line_keys = {} # edge index -> its _Line, the key in frames
         self._spans = {}     # edge index -> (axis, start, room, low, high, at) on screen, see layout.Placement
+        self._values_callback: Optional[Callable[[dict], Any]] = None # from on_values_change()
 
         # Class attributes (copied, so each instance gets its own) and keyword arguments
         provided: dict[str, Any] = {}
@@ -211,6 +212,47 @@ class Group():
         if name in named:
             return named[name]
         raise AttributeError(f"{self._kind} has no attribute or widget named '{name}'")
+
+    # --- Form values ---
+
+    @property
+    def values(self) -> dict:
+        """What's in the inputs inside, by name: {"name": "Ada", "debug": True}. Inputs are
+        text boxes, checkboxes and toggles, radio groups, selects, sliders, and dates; a
+        panel (or Tabs) inside gives a dict of its own: {"profile": {"name": "Ada"}}.
+
+        Set it to fill them in: panel.values = saved. Only the names given change, and
+        like setting a widget's value, it doesn't call their on_change."""
+        out = {}
+        for name, widget in self.named.items():
+            if isinstance(widget, Group):
+                inner = widget.values
+                if inner: out[name] = inner
+            elif widget.form_input:
+                out[name] = widget.value
+        return out
+
+    @values.setter
+    def values(self, values: dict) -> None:
+        for name, value in values.items():
+            widget = self.named.get(name)
+            if widget is None:
+                raise KeyError(f"no input named {name!r} in this {self._kind} (inputs: {', '.join(self.values) or 'none'})")
+            if isinstance(widget, Group):
+                if not isinstance(value, dict):
+                    raise TypeError(f"'{name}' is a {widget._kind} of inputs, so its value is a dict, not {value!r}")
+                widget.values = value
+            elif widget.form_input:
+                widget.value = value
+                if hasattr(widget, "cursor"): widget.set(cursor=len(str(value)), anchor=None) # text boxes: to the end
+            else:
+                raise TypeError(f"'{name}' is a {type(widget).__name__}, which doesn't have a value to set")
+
+    def on_values_change(self, callback: Optional[Callable[[dict], Any]]) -> None:
+        """Call callback(values) whenever an input inside changes: as it's edited, picked or
+        ticked (when its own on_change is called). For saving as you go, or noticing
+        unsaved changes: view.on_values_change(lambda values: save(values))."""
+        self._values_callback = callback
 
     def _frame_title(self, key):
         """The title on the border of one of this group's widgets: its title, or its name.

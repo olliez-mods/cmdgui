@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+import math
+import time
+from typing import Any, Callable, Iterable, Iterator, Optional
 from ..shorts import *
 from ..inputs import mouse
 from .base import Widget, field, _call
@@ -57,11 +59,17 @@ class Select(Widget):
         self.dropdown = None # the open Popup, if any
     def on_change(self, callback: Callable[[int, Any], Any]): # called with (index, option)
         self.change_callback = callback
+    form_input = True
     @property
     def value(self):
-        """The chosen option, or None."""
+        """The chosen option, or None. Set it to an option (or None) to choose that one."""
         if(self.selected is None or not 0 <= self.selected < len(self.options)): return None
         return self.options[self.selected]
+    @value.setter
+    def value(self, option):
+        if option is not None and option not in self.options:
+            raise ValueError(f"{option!r} isn't one of the options ({', '.join(map(repr, self.options))})")
+        self.selected = None if option is None else self.options.index(option)
     @property
     def is_open(self):
         return self.dropdown is not None and self.dropdown.is_open
@@ -73,6 +81,7 @@ class Select(Widget):
         if(index != self.selected):
             self.selected = index
             _call(self.change_callback, index, self.options[index])
+            self._value_changed()
     def open(self):
         """Show the list of options below the widget (above if there's no room)."""
         if(self.view is None or not self.options or self.is_open): return
@@ -121,24 +130,94 @@ class Select(Widget):
 
 
 class ProgressBar(Widget):
+    """A bar filling up from 0 to 1. Set value, or let track() run it from a loop:
+
+        for path in bar.track(files):    # 12/40 · 8s left
+            copy(path)"""
     value: float = field(default=0.0, kw_only=False) # 0 to 1
     show_percent: bool = True
+    label: Optional[str] = None # text after the bar in place of the percentage
     preferred_height = 1
+
+    def init(self):
+        self._pulse: Optional[int] = None # with no total, how far along the sliding block is
+
+    def track(self, items: Iterable, total: Optional[int] = None) -> Iterator:
+        """Go through items, moving the bar along as you do, with how many are done and
+        about how long is left: for item in bar.track(items): ...
+
+        total is how many there are, if items can't say (a generator). Without one, a
+        block slides along the bar and the label just counts. Updates are limited to about
+        20 a second, so a fast loop isn't slowed down. When it's done the label says how
+        long it took; stopping early (break) leaves the bar where it got to."""
+        if total is None:
+            try: total = len(items)
+            except TypeError: total = None
+        start = last = time.monotonic()
+        done = 0
+        self._pulse = None if total else 0
+        self.set(value=0.0, label=f"0/{total}" if total else "0")
+        finished = False
+        try:
+            for item in items:
+                yield item
+                done += 1
+                now = time.monotonic()
+                if now - last >= 0.05 or done == total:
+                    last = now
+                    self._show_progress(done, total, now - start)
+            finished = True
+        finally: # also when the loop stops early: show where it got to
+            took = time.monotonic() - start
+            self._pulse = None
+            if not finished: self._show_progress(done, total, took, final=True)
+            elif total: self.set(value=1.0, label=f"{done}/{total} · took {_duration(took)}")
+            else: self.set(value=1.0, label=f"{done} · took {_duration(took)}")
+
+    def _show_progress(self, done, total, elapsed, final=False):
+        if not total:
+            if not final: self._pulse = done # the block slides with each step
+            self.label = f"{done}"
+            return
+        left = elapsed / done * (total - done) if done else None
+        eta = f" · {_duration(math.ceil(left))} left" if left is not None and done < total and elapsed > 0.5 \
+              and not final else ""
+        self.set(value=done / total, label=f"{done}/{total}{eta}")
+
     def draw(self, c):
         value = max(0.0, min(1.0, float(self.value)))
-        label = f" {round(value * 100):>3}%" if self.show_percent else ""
-        bar = max(0, c.width - len(label))
-        filled = round(value * bar)
+        label = f" {self.label}" if self.label is not None else f" {round(value * 100):>3}%" if self.show_percent else ""
+        label = fit(label, max(0, c.width - 3)) if text_width(label) > c.width - 3 else label # leave a little bar
+        bar = max(0, c.width - text_width(label))
         mid = c.height // 2
-        c.text(0, mid, "█" * filled, self.theme("progress"))
-        c.text(filled, mid, "░" * (bar - filled), self.theme("progress_empty"))
+        if self._pulse is not None and bar > 0: # no total: a block going back and forth
+            size = max(1, min(4, bar // 4))
+            span = max(1, bar - size)
+            step = self._pulse % (2 * span)
+            at = step if step < span else 2 * span - step
+            c.text(0, mid, "░" * bar, self.theme("progress_empty"))
+            c.text(at, mid, "█" * size, self.theme("progress"))
+        else:
+            filled = round(value * bar)
+            c.text(0, mid, "█" * filled, self.theme("progress"))
+            c.text(filled, mid, "░" * (bar - filled), self.theme("progress_empty"))
         c.text(bar, mid, label)
+
     def content_size(self):
         return 20, 1
 
 
+def _duration(seconds):
+    """3s, 2m 05s, 1h 02m."""
+    seconds = int(round(seconds))
+    if seconds < 60: return f"{seconds}s"
+    if seconds < 3600: return f"{seconds // 60}m {seconds % 60:02}s"
+    return f"{seconds // 3600}h {seconds % 3600 // 60:02}m"
+
+
 class Slider(Widget):
     """Pick a number by dragging, clicking, or the arrow keys when focused."""
+    form_input = True
     value: float = field(default=0.0, kw_only=False)
     min: float = 0.0
     max: float = 1.0
@@ -172,6 +251,7 @@ class Slider(Widget):
         if(value != self.value):
             self.value = value
             _call(self.change_callback, value)
+            self._value_changed()
     def _set_from_mouse(self):
         track = self._track_width(self.width)
         x = max(0, min(track - 1, self.mouse_pos()[0]))
@@ -222,9 +302,18 @@ class Checkbox(Widget):
     focusable = True
     def on_change(self, callback: Callable[[bool], Any]): # called with True/False
         self.change_callback = callback
+    form_input = True
+    @property
+    def value(self) -> bool:
+        """The same as checked, so every input has a value."""
+        return self.checked
+    @value.setter
+    def value(self, checked):
+        self.checked = bool(checked)
     def toggle(self):
         self.checked = not self.checked
         _call(self.change_callback, self.checked)
+        self._value_changed()
     def key_hints(self):
         return [("space", "Toggle")]
 
@@ -259,16 +348,23 @@ class RadioGroup(Widget):
     focusable = True
     def on_change(self, callback: Callable[[int, Any], Any]): # called with (index, option)
         self.change_callback = callback
+    form_input = True
     @property
     def value(self):
-        """The selected option, or None if there are none."""
+        """The selected option, or None if there are none. Set it to an option to select it."""
         return self.options[self.selected] if 0 <= self.selected < len(self.options) else None
+    @value.setter
+    def value(self, option):
+        if option not in self.options:
+            raise ValueError(f"{option!r} isn't one of the options ({', '.join(map(repr, self.options))})")
+        self.selected = self.options.index(option)
 
     def select(self, index):
         index = max(0, min(len(self.options) - 1, index))
         if(index != self.selected and self.options):
             self.selected = index
             _call(self.change_callback, index, self.options[index])
+            self._value_changed()
 
     def _positions(self):
         """(x, y, width) of each option, relative to the widget."""
